@@ -170,7 +170,27 @@ def preprocess_and_split(df, features, target_col, seed=42):
 
     # duration (seconds) and pickup hour
     df['trip_duration'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds()
+    # Trip duration in minutes
+    df['trip_duration_minutes'] = df['trip_duration'] / 60.0
+
     df['pickup_hour'] = df['pickup_dt'].dt.hour
+    # Bucket pickup_hour
+    def demand_bucket(hour):
+        if 2 <= hour < 6:
+            return "low"
+        elif 6 <= hour < 16:
+            return "normal"
+        else:
+            return "high"
+
+    df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
+
+    # One-hot encode pickup_hour_bucket
+    pickup_dummies = pd.get_dummies(df['pickup_hour_bucket'], prefix="pickup_hour")
+    df = pd.concat([df, pickup_dummies], axis=1)
+    
+    # Drop old columns no longer needed
+    df = df.drop(columns=['pickup_hour', 'trip_duration', 'pickup_hour_bucket'])
 
     # keep features present only
     cols = []
@@ -178,7 +198,8 @@ def preprocess_and_split(df, features, target_col, seed=42):
         if f in df.columns:
             cols.append(f)
     # Add derived features
-    cols += ['trip_duration', 'pickup_hour']
+    # cols += ['trip_duration', 'pickup_hour']
+    cols += ['trip_duration_minutes', 'pickup_hour_bucket']
 
     # We should drop the origin feature and keep the new features
     columns_to_drop = ['tpep_pickup_datetime', 'tpep_dropoff_datetime','dropoff_dt','pickup_dt']

@@ -9,10 +9,20 @@ pip install -r requirements.txt
 
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.01 --activation relu
 
+## good result (Best)
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_100000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
+
 
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_100000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.01 --activation relu
+## learn slower -> have same result
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_100000.csv --epochs 300 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
 
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.csv --epochs 300 --batch-size 128 --hidden 64 --lr 0.01 --activation relu
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.csv --epochs 300 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
+
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
+
+
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.csv --epochs 10 --batch-size 512 --hidden 128 --lr 0.005 --activation relu
 
 ## Have to install library for macbook M2
 
