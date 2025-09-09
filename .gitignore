@@ -1,0 +1,76 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Distribution / packaging
+.Python
+(build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# VS Code files
+.vscode/
+
+# PyCharm files
+.idea/
+
+# Environment variable files
+.env
+*.env
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Coverage reports
+coverage/
+*.cover
+*.py,cover
+
+# Test result files
+test-results/
+*.xml
+*.log
+
+# MyPy type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest-Cov
+.coverage
+.coverage.*
+cache/
+*.cache
+
+# Sphinx documentation
+docs/_build/
+
+# SQLAlchemy files
+*.db
+
+# MacOS files
+.DS_Store
+
+# Windows files
+Thumbs.db
+ehthumbs.db
+
+# My custom files
+DB/
+.data/
+mlruns/
+energy_esg_adapted_model/
+checkpoints/
+
+sample_data/
+tmp/
