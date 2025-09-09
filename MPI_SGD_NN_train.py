@@ -43,12 +43,53 @@ import pandas as pd
 from mpi4py import MPI
 from collections import defaultdict
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
+import logging
 import warnings
 warnings.filterwarnings("ignore", message="Could not infer format")
+
+
+# Configure the basic logging settings
+# The format string includes '%(asctime)s' to automatically add the timestamp
+# logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logger.info)
+
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
+
+# logging.basicConfig(
+#     format=f'%(asctime)s - %(levelname)s - [Rank {rank}] - %(message)s',
+#     level=logger.info
+# )
+
+# ------------------ Config Log ------------------
+# Create a logger
+# Create logger per rank
+logger = logging.getLogger(f"rank{rank}")
+logger.setLevel(logging.INFO)
+
+# File handler (separate log file per rank)
+fh = logging.FileHandler(f"rank{rank}.log", mode="w")
+fh.setLevel(logging.INFO)
+
+# Formatter with rank info
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(message)s"
+)
+fh.setFormatter(formatter)
+
+# Attach handler (avoid duplicates)
+if not logger.handlers:
+    logger.addHandler(fh)
+
+# Optional: rank 0 also logs to console
+if rank == 0:
+    sh = logging.StreamHandler()
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(formatter)
+    logger.addHandler(sh)
+
+logger.info("Training started")
 
 # ------------------ utilities ------------------
 
@@ -154,7 +195,14 @@ def preprocess_and_split(df, features, target_col, seed=42):
     # drop na
     # print('===START.1')
     # print(features)
-    df = df.dropna(subset=features + [target_col])#.copy()
+    df = df.dropna(subset=features + [target_col]).copy()
+
+    # filter extreme fares (keep 5%–95%)
+    # target = 'total_amount' if 'total_amount' in df.columns else 'total amount'
+    # lower = df[target_col].quantile(0.05)
+    # upper = df[target_col].quantile(0.95)
+    # df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
+
     # print('===END.1')
     # print(df.head(2))
     # parse datetime fields if present and create simple features
@@ -172,6 +220,9 @@ def preprocess_and_split(df, features, target_col, seed=42):
     df['trip_duration'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds()
     # Trip duration in minutes
     df['trip_duration_minutes'] = df['trip_duration'] / 60.0
+
+    # Filter out trips > 300 minutes
+    # df = df[df['trip_duration_minutes'] <= 300].copy()
 
     df['pickup_hour'] = df['pickup_dt'].dt.hour
     # Bucket pickup_hour
@@ -208,7 +259,9 @@ def preprocess_and_split(df, features, target_col, seed=42):
     # inplace=True modifies the DataFrame directly, without creating a new one.
     df.drop(columns=columns_to_drop, axis=1, inplace=True)
 
-    df.to_csv("tmp/data_step1.csv", index=False)
+    logger.info("save data_step1")
+    # df.to_csv("tmp/data_step1.csv", index=False)
+    
 
     # print('=====cols')
     # print(cols)
@@ -245,17 +298,18 @@ def preprocess_and_split(df, features, target_col, seed=42):
     # Drop original one-hot encoded columns & merge
     df = df.drop(columns=onehot_features)
     df = pd.concat([df, onehot_df], axis=1)
-
-    df.to_csv("tmp/data_step2.csv", index=False)
+    logger.info("save data_step2")
+    # df.to_csv("tmp/data_step2.csv", index=False)
 
 
     # numerical fill and selection
     # df = df[cols + [target_col]].copy()
     # drop rows with NaN (e.g. bad datetimes)
-    df = df.dropna()
+    # df = df.dropna()
 
-    print('=====After Drop')
-    print(df.head(2))
+    # print(df.head(2))
+
+    newFeatures = df.columns
 
     # train/test split using a global RNG sequence (so all processes agree)
     rng = np.random.RandomState(seed)
@@ -268,7 +322,7 @@ def preprocess_and_split(df, features, target_col, seed=42):
     train = df.iloc[train_idx].reset_index(drop=True)
     test = df.iloc[test_idx].reset_index(drop=True)
 
-    return train, test
+    return train, test, newFeatures
 
 
 def normalize_train_test(train_df, test_df):
@@ -292,12 +346,12 @@ def normalize_train_test(train_df, test_df):
 def train_mpi(args):
     # Rank 0 loads the CSV path and broadcasts nothing — each rank reads the file itself to comply with dataset locality requirement
     if rank == 0:
-        print(f"MPI world size: {size}")
-        print("Loading dataset from:", args.data)
+        logger.info(f"MPI world size: {size}")
+        logger.info(f"Loading dataset from: ${args.data}")
     # Each process reads the CSV and keeps rows where index % size == rank
     df = pd.read_csv(args.data)
-    df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
-
+    logger.info("read_csv Successful")
+    # df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
     # print(df_local.head(5))
 
     features_requested = [
@@ -305,7 +359,9 @@ def train_mpi(args):
         'RatecodeID', 'PULocationID', 'DOLocationID', 'payment_type', 'extra'
     ]
     # the preprocess function will handle alternate column names
-    train_df_global, test_df_global = preprocess_and_split(df, features_requested, target_col='total_amount', seed=args.seed)
+    train_df_global, test_df_global, newFeatures  = preprocess_and_split(df, features_requested, target_col='total_amount', seed=args.seed)
+    logger.info("preprocess_and_split completed")
+    logger.info(f"newFeatures: ${newFeatures}")
 
     # Now each process selects its local slice from the global train/test (so partitions are consistent)
     # Note: we want the dataset to be distributed among processes; to do that, we partition the global train and test by row index across processes
@@ -313,9 +369,12 @@ def train_mpi(args):
         N = len(global_df)
         idxs = np.arange(N)
         local_mask = (idxs % size) == rank
+        logger.info(f"local_mask:${local_mask}")
         return global_df.iloc[local_mask].reset_index(drop=True)
-
+    
+    logger.info("Start training local")
     train_local = local_partition(train_df_global)
+    logger.info("End training local")
     test_local = local_partition(test_df_global)
 
     # normalize using training set global stats: compute on rank 0 and broadcast to others
@@ -326,7 +385,9 @@ def train_mpi(args):
         train_for_stats = None
     # We'll construct stats on rank 0 and broadcast via pickleable object
     if rank == 0:
+        logger.info("Start normalize_train_test")
         train_norm, test_norm, stats, X_cols, target = normalize_train_test(train_for_stats.copy(), test_df_global.copy())
+        logger.info("End normalize_train_test")
     else:
         train_norm = None
         test_norm = None
@@ -334,8 +395,8 @@ def train_mpi(args):
         X_cols = None
         target = None
 
-    print(f'stats:${stats}')
-    print(f'X_cols:${X_cols}')
+    # logger.info(f'stats:${stats}')
+    # logger.info(f'X_cols:${X_cols}')
 
     # broadcast stats, X_cols, target to all ranks
     stats = comm.bcast(stats, root=0)
@@ -358,7 +419,7 @@ def train_mpi(args):
     N_train_local = len(X_train)
     N_train_global = comm.allreduce(N_train_local, op=MPI.SUM)
     if rank == 0:
-        print(f"Global train size: {N_train_global}, local sizes: {N_train_local}")
+        logger.info(f"Global train size: {N_train_global}, local sizes: {N_train_local}")
 
     # initialize model
     model = OneHiddenNN(input_dim=len(X_cols), hidden_dim=args.hidden, activation=args.activation, seed=args.seed + rank)
@@ -405,7 +466,7 @@ def train_mpi(args):
                 Rtheta = global_sse / N_train_global
                 history.append((total_iters, Rtheta))
                 if rank == 0:
-                    print(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
+                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
 
     t1 = time.perf_counter()
     train_time = t1 - t0
@@ -432,16 +493,16 @@ def train_mpi(args):
 
     # rank 0 prints results
     if rank == 0:
-        print("\nTraining finished")
-        print(f"Epochs: {args.epochs}, total iters: {total_iters}")
-        print(f"Training time (s): {train_time:.3f}")
-        print(f"RMSE train: {rmse_train:.6f}")
-        print(f"RMSE test:  {rmse_test:.6f}")
+        logger.info("\nTraining finished")
+        logger.info(f"Epochs: {args.epochs}, total iters: {total_iters}")
+        logger.info(f"Training time (s): {train_time:.3f}")
+        logger.info(f"RMSE train: {rmse_train:.6f}")
+        logger.info(f"RMSE test:  {rmse_test:.6f}")
         # optionally save model
         if args.save_model:
             params = model.get_params_vector()
             np.savez(args.save_model, params=params, X_cols=X_cols, stats=stats)
-            print(f"Saved model to {args.save_model}")
+            logger.info(f"Saved model to {args.save_model}")
 
         # collect a small sample from the global test set
         sample_size = min(2, len(X_test))  # take up to 2 from local test
@@ -451,12 +512,12 @@ def train_mpi(args):
             sample_pred, _ = model.forward(sample_X)
 
             # print nicely
-            print("\nSample test predictions:")
+            logger.info("\nSample test predictions:")
             for i in range(sample_size):
                 features = sample_X[i]
-                print(f"Features: {features}")
-                print(f" Predicted total_amount: {sample_pred[i]:.2f}")
-                print(f" Actual total_amount:    {sample_y[i]:.2f}\n")
+                logger.info(f"Features: {features}")
+                logger.info(f" Predicted total_amount: {sample_pred[i]:.2f}")
+                logger.info(f" Actual total_amount:    {sample_y[i]:.2f}\n")
 
     # return history for possible further processing
     return history
@@ -484,13 +545,14 @@ if __name__ == '__main__':
         import mpi4py
     except Exception:
         if rank == 0:
-            print('mpi4py not installed. Install with pip install mpi4py')
+            logger.info('mpi4py not installed. Install with pip install mpi4py')
         raise
 
     # run training
-    # print('======Input parameters')
-    # print(args)
+    logger.info("Start train_mpi")
+    logger.info(args)
     hist = train_mpi(args)
+    logger.info("End train_mpi")
 
     # rank 0 can save history to a CSV if desired
     if rank == 0 and len(hist) > 0:
@@ -500,4 +562,4 @@ if __name__ == '__main__':
             writer.writerow(['iter', 'Rtheta'])
             for it, val in hist:
                 writer.writerow([it, val])
-        print('Saved training_history.csv')
+        logger.info('Saved training_history.csv')
