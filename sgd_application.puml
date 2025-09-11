@@ -1,0 +1,41 @@
+@startuml
+|Rank 0|
+start
+:Load dataset (local partition);
+:Preprocess (drop NA, trim 5-95%, normalize, encode);
+:Initialize model parameters;
+repeat
+  :Select local mini-batch;
+  :Forward pass (predict);
+  :Compute local loss + gradient;
+  |All Ranks|
+  :MPI_Allreduce (aggregate gradients);
+  |Rank 0|
+  :Update model parameters;
+  if (Iter % print_every?) then (yes)
+    :Compute global loss;
+    :Log training history;
+  endif
+repeat while (epoch < max_epochs)
+:Compute RMSE (train & test);
+:Save model & history;
+stop
+
+|Rank 1..N|
+start
+:Load dataset (local partition);
+:Preprocess (same steps);
+:Initialize model parameters;
+repeat
+  :Select local mini-batch;
+  :Forward pass (predict);
+  :Compute local loss + gradient;
+  |All Ranks|
+  :MPI_Allreduce (aggregate gradients);
+  |Rank 1..N|
+  :Update model parameters (same as Rank 0);
+repeat while (epoch < max_epochs)
+:Compute RMSE contribution;
+:Stop;
+stop
+@enduml

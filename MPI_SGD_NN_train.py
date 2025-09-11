@@ -195,7 +195,9 @@ def preprocess_and_split(df, features, target_col, seed=42):
     # drop na
     # print('===START.1')
     # print(features)
+    logger.info(f'Length Before Drop: ${len(df)}')
     df = df.dropna(subset=features + [target_col]).copy()
+    logger.info(f'Length After Drop: ${len(df)}')
 
     # filter extreme fares (keep 5%–95%)
     # target = 'total_amount' if 'total_amount' in df.columns else 'total amount'
@@ -205,6 +207,9 @@ def preprocess_and_split(df, features, target_col, seed=42):
 
     # print('===END.1')
     # print(df.head(2))
+
+    columns_to_drop = []
+
     # parse datetime fields if present and create simple features
     if 'tpep_pickup_datetime' in df.columns:
         df['pickup_dt'] = pd.to_datetime(df['tpep_pickup_datetime'], errors='coerce')
@@ -216,10 +221,16 @@ def preprocess_and_split(df, features, target_col, seed=42):
     else:
         df['dropoff_dt'] = pd.NaT
 
+    columns_to_drop.append('tpep_pickup_datetime')
+    columns_to_drop.append('tpep_dropoff_datetime')
+    columns_to_drop.append('pickup_dt')
+    columns_to_drop.append('dropoff_dt')
     # duration (seconds) and pickup hour
-    df['trip_duration'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds()
-    # Trip duration in minutes
-    df['trip_duration_minutes'] = df['trip_duration'] / 60.0
+    # df['trip_duration'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds()
+    # # Trip duration in minutes
+    # df['trip_duration_minutes'] = df['trip_duration'] / 60.0
+
+    df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
 
     # Filter out trips > 300 minutes
     # df = df[df['trip_duration_minutes'] <= 300].copy()
@@ -235,31 +246,35 @@ def preprocess_and_split(df, features, target_col, seed=42):
             return "high"
 
     df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
+    columns_to_drop.append('pickup_hour')
 
     # One-hot encode pickup_hour_bucket
     pickup_dummies = pd.get_dummies(df['pickup_hour_bucket'], prefix="pickup_hour")
+    # logger.info(f'pickup_dummies: ${pickup_dummies}')
     df = pd.concat([df, pickup_dummies], axis=1)
+    # logger.info(f'\n${df.head(5)}')
+    columns_to_drop.append('pickup_hour_bucket')
     
     # Drop old columns no longer needed
-    df = df.drop(columns=['pickup_hour', 'trip_duration', 'pickup_hour_bucket'])
+    # df = df.drop(columns=['pickup_hour', 'trip_duration', 'pickup_hour_bucket'])
 
     # keep features present only
-    cols = []
-    for f in features:
-        if f in df.columns:
-            cols.append(f)
-    # Add derived features
-    # cols += ['trip_duration', 'pickup_hour']
-    cols += ['trip_duration_minutes', 'pickup_hour_bucket']
+    # cols = []
+    # for f in features:
+    #     if f in df.columns:
+    #         cols.append(f)
+    # # Add derived features
+    # # cols += ['trip_duration', 'pickup_hour']
+    # cols += ['trip_duration_minutes', 'pickup_hour_bucket']
 
     # We should drop the origin feature and keep the new features
-    columns_to_drop = ['tpep_pickup_datetime', 'tpep_dropoff_datetime','dropoff_dt','pickup_dt']
+    # columns_to_drop = ['tpep_pickup_datetime', 'tpep_dropoff_datetime','dropoff_dt','pickup_dt']
     # Drop the specified columns.
     # axis=1 tells pandas to drop columns, not rows.
     # inplace=True modifies the DataFrame directly, without creating a new one.
     df.drop(columns=columns_to_drop, axis=1, inplace=True)
+    # logger.info(f'\n${df.head(5)}')
 
-    logger.info("save data_step1")
     # df.to_csv("tmp/data_step1.csv", index=False)
     
 
@@ -296,9 +311,13 @@ def preprocess_and_split(df, features, target_col, seed=42):
     # Combine processed features
     # -------------------------------
     # Drop original one-hot encoded columns & merge
+    # df = df.drop(columns=onehot_features)
+    columns_to_drop.append("RatecodeID")
+    columns_to_drop.append("payment_type")
     df = df.drop(columns=onehot_features)
+    logger.info(f'columns_to_drop: ${columns_to_drop}')
     df = pd.concat([df, onehot_df], axis=1)
-    logger.info("save data_step2")
+    # logger.info(f'\n${df.head(5)}')
     # df.to_csv("tmp/data_step2.csv", index=False)
 
 
@@ -350,17 +369,20 @@ def train_mpi(args):
         logger.info(f"Loading dataset from: ${args.data}")
     # Each process reads the CSV and keeps rows where index % size == rank
     df = pd.read_csv(args.data)
-    logger.info("read_csv Successful")
-    # df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
-    # print(df_local.head(5))
+    logger.info(f'Length Global: ${len(df)}')
+    df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
+    logger.info(f'Length Local: ${len(df_local)}')
+    logger.info(df_local.head(5))
 
     features_requested = [
         'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'passenger_count', 'trip_distance',
         'RatecodeID', 'PULocationID', 'DOLocationID', 'payment_type', 'extra'
     ]
     # the preprocess function will handle alternate column names
-    train_df_global, test_df_global, newFeatures  = preprocess_and_split(df, features_requested, target_col='total_amount', seed=args.seed)
-    logger.info("preprocess_and_split completed")
+    train_df_global, test_df_global, newFeatures  = preprocess_and_split(df_local, features_requested, target_col='total_amount', seed=args.seed)
+    # logger.info("preprocess_and_split completed")
+    logger.info(f'Length train_df_global: ${len(train_df_global)}')
+    logger.info(f'Length test_df_global: ${len(test_df_global)}')
     logger.info(f"newFeatures: ${newFeatures}")
 
     # Now each process selects its local slice from the global train/test (so partitions are consistent)
@@ -369,13 +391,17 @@ def train_mpi(args):
         N = len(global_df)
         idxs = np.arange(N)
         local_mask = (idxs % size) == rank
-        logger.info(f"local_mask:${local_mask}")
+        # Base on the rank to pick data from dataset
         return global_df.iloc[local_mask].reset_index(drop=True)
     
     logger.info("Start training local")
-    train_local = local_partition(train_df_global)
+    # train_local = local_partition(train_df_global)
+    train_local = train_df_global.copy()
+    logger.info(f'Length train_local: ${len(train_local)}')
     logger.info("End training local")
-    test_local = local_partition(test_df_global)
+    # test_local = local_partition(test_df_global)
+    test_local = test_df_global.copy()
+    logger.info(f'Length test_df_global: ${len(test_df_global)}')
 
     # normalize using training set global stats: compute on rank 0 and broadcast to others
     # To avoid sending full training set, compute stats on rank 0 and broadcast means/stds
@@ -387,7 +413,7 @@ def train_mpi(args):
     if rank == 0:
         logger.info("Start normalize_train_test")
         train_norm, test_norm, stats, X_cols, target = normalize_train_test(train_for_stats.copy(), test_df_global.copy())
-        logger.info("End normalize_train_test")
+        # logger.info(f'End normalize_train_test ===\n${stats} \n${X_cols} \n{target}')
     else:
         train_norm = None
         test_norm = None
@@ -402,6 +428,8 @@ def train_mpi(args):
     stats = comm.bcast(stats, root=0)
     X_cols = comm.bcast(X_cols, root=0)
     target = comm.bcast(target, root=0)
+
+    logger.info(f'After Broadcast ===\n${stats} \n${X_cols} \n{target}')
 
     # Now apply normalization parameters to local partitions
     for c, (mean, std) in stats.items():
@@ -465,8 +493,8 @@ def train_mpi(args):
                 # compute average loss per sample
                 Rtheta = global_sse / N_train_global
                 history.append((total_iters, Rtheta))
-                if rank == 0:
-                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
+                # if rank == 0:
+                logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
 
     t1 = time.perf_counter()
     train_time = t1 - t0
@@ -504,20 +532,20 @@ def train_mpi(args):
             np.savez(args.save_model, params=params, X_cols=X_cols, stats=stats)
             logger.info(f"Saved model to {args.save_model}")
 
-        # collect a small sample from the global test set
-        sample_size = min(2, len(X_test))  # take up to 2 from local test
-        if sample_size > 0:
-            sample_X = X_test[:sample_size]
-            sample_y = y_test[:sample_size]
-            sample_pred, _ = model.forward(sample_X)
+    # collect a small sample from the global test set
+    sample_size = min(2, len(X_test))  # take up to 2 from local test
+    if sample_size > 0:
+        sample_X = X_test[:sample_size]
+        sample_y = y_test[:sample_size]
+        sample_pred, _ = model.forward(sample_X)
 
-            # print nicely
-            logger.info("\nSample test predictions:")
-            for i in range(sample_size):
-                features = sample_X[i]
-                logger.info(f"Features: {features}")
-                logger.info(f" Predicted total_amount: {sample_pred[i]:.2f}")
-                logger.info(f" Actual total_amount:    {sample_y[i]:.2f}\n")
+        # print nicely
+        logger.info("\nSample test predictions:")
+        for i in range(sample_size):
+            features = sample_X[i]
+            logger.info(f"Features: {features}")
+            logger.info(f" Predicted total_amount: {sample_pred[i]:.2f}")
+            logger.info(f" Actual total_amount:    {sample_y[i]:.2f}\n")
 
     # return history for possible further processing
     return history
