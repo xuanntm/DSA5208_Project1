@@ -30,9 +30,15 @@ mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.cs
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022.csv --epochs 10 --batch-size 512 --hidden 128 --lr 0.001 --activation relu
 
 
-### 5000000
+### 5000000 Slow
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 30 --batch-size 256 --hidden 64 --lr 0.002 --activation relu
 
+
+### Good running with 5_000_000 rows
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 15 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+
+
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022.csv --epochs 15 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
 
 --epochs 300 ==> Cham qua khong chiu noi
 
