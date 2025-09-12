@@ -45,22 +45,13 @@ from collections import defaultdict
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
 import logging
 import warnings
-warnings.filterwarnings("ignore", message="Could not infer format")
-
-
-# Configure the basic logging settings
-# The format string includes '%(asctime)s' to automatically add the timestamp
-# logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logger.info)
+from contextlib import contextmanager
+# warnings.filterwarnings("ignore", message="Could not infer format")
 
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
-
-# logging.basicConfig(
-#     format=f'%(asctime)s - %(levelname)s - [Rank {rank}] - %(message)s',
-#     level=logger.info
-# )
 
 # ------------------ Config Log ------------------
 # Create a logger
@@ -89,7 +80,12 @@ if rank == 0:
     sh.setFormatter(formatter)
     logger.addHandler(sh)
 
-logger.info("Training started")
+@contextmanager
+def timed_step(logger, rank, step_name):
+    t0 = time.perf_counter()
+    yield
+    t1 = time.perf_counter()
+    logger.info(f"[Rank {rank}] {step_name} took {t1 - t0:.4f} sec")
 
 # ------------------ utilities ------------------
 
@@ -246,7 +242,7 @@ def bucket_passenger_count(df, col="passenger_count"):
     df = df.drop(columns=[col, new_col])
     return df
 
-def print_stats(stats, filename="stats.csv"):
+def save_and_print_stats(stats, filename="stats.csv"):
     rows = []
     for col, (mean, std) in stats.items():
         if col == "__target__":
@@ -259,171 +255,99 @@ def print_stats(stats, filename="stats.csv"):
 
 def preprocess_and_split(df, features, target_col, seed=42):
     # drop na
-    # print('===START.1')
-    # print(features)
-    logger.info(f'Length Before Drop: ${len(df)}')
     df = df.dropna(subset=features + [target_col]).copy()
-    logger.info(f'Length After Drop: ${len(df)}')
 
     # filter extreme fares (keep 5%–95%)
-    # target = 'total_amount' if 'total_amount' in df.columns else 'total amount'
-    lower = df[target_col].quantile(0.05)
-    upper = df[target_col].quantile(0.95)
-    df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
+    with timed_step(logger, rank, "dropna 5% highest and lowest"):
+        lower = df[target_col].quantile(0.05)
+        upper = df[target_col].quantile(0.95)
+        df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
+        logger.info(f'Length After Drop: ${len(df)}')
 
-    # print('===END.1')
-    # print(df.head(2))
-
-    columns_to_drop = []
 
     # parse datetime fields if present and create simple features
-    if 'tpep_pickup_datetime' in df.columns:
-        df['pickup_dt'] = pd.to_datetime(df['tpep_pickup_datetime'], errors='coerce')
-    else:
-        df['pickup_dt'] = pd.NaT
-
-    if 'tpep_dropoff_datetime' in df.columns:
-        df['dropoff_dt'] = pd.to_datetime(df['tpep_dropoff_datetime'], errors='coerce')
-    else:
-        df['dropoff_dt'] = pd.NaT
-
-    columns_to_drop.append('tpep_pickup_datetime')
-    columns_to_drop.append('tpep_dropoff_datetime')
-    columns_to_drop.append('pickup_dt')
-    columns_to_drop.append('dropoff_dt')
-    # duration (seconds) and pickup hour
-    # df['trip_duration'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds()
-    # # Trip duration in minutes
-    # df['trip_duration_minutes'] = df['trip_duration'] / 60.0
-
-    df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
-
-    # Filter out trips > 300 minutes
-    df = df[df['trip_duration_minutes'] <= 300].copy()
-
-    df['pickup_hour'] = df['pickup_dt'].dt.hour
-    # Bucket pickup_hour
-    def demand_bucket(hour):
-        if 2 <= hour < 6:
-            return "low"
-        elif 6 <= hour < 16:
-            return "normal"
+    with timed_step(logger, rank, "create simple features"):
+        if 'tpep_pickup_datetime' in df.columns:
+            df['pickup_dt'] = pd.to_datetime(df['tpep_pickup_datetime'], errors='coerce')
         else:
-            return "high"
+            df['pickup_dt'] = pd.NaT
 
-    df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
-    columns_to_drop.append('pickup_hour')
+        if 'tpep_dropoff_datetime' in df.columns:
+            df['dropoff_dt'] = pd.to_datetime(df['tpep_dropoff_datetime'], errors='coerce')
+        else:
+            df['dropoff_dt'] = pd.NaT
 
-    # One-hot encode pickup_hour_bucket
-    pickup_dummies = pd.get_dummies(df['pickup_hour_bucket'], prefix="pickup_hour")
-    # logger.info(f'pickup_dummies: ${pickup_dummies}')
-    df = pd.concat([df, pickup_dummies], axis=1)
-    # logger.info(f'\n${df.head(5)}')
-    columns_to_drop.append('pickup_hour_bucket')
+        df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
+        
+        # Filter out trips > 300 minutes
+        df = df[df['trip_duration_minutes'] <= 300].copy()
+
+        with timed_step(logger, rank, "Bucket pickup_hour"):
+            df['pickup_hour'] = df['pickup_dt'].dt.hour
+            # Bucket pickup_hour
+            def demand_bucket(hour):
+                if 2 <= hour < 6:
+                    return "low"
+                elif 6 <= hour < 16:
+                    return "normal"
+                else:
+                    return "high"
+
+            df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
+
+            # One-hot encode pickup_hour_bucket
+            pickup_dummies = pd.get_dummies(df['pickup_hour_bucket'], prefix="pickup_hour")
+            # logger.info(f'pickup_dummies: ${pickup_dummies}')
+            df = pd.concat([df, pickup_dummies], axis=1)
+        tmp_dt_features = ['tpep_pickup_datetime','tpep_dropoff_datetime','pickup_dt','dropoff_dt','pickup_hour','pickup_hour_bucket']
+        df.drop(columns=tmp_dt_features, axis=1, inplace=True)
+
+    with timed_step(logger, rank, "One-hot encode RatecodeID & payment_type"):
+        # 1. One-hot encode RatecodeID & payment_type
+        onehot_features = ["RatecodeID", "payment_type"]
+        ohe = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
+
+        onehot_encoded = ohe.fit_transform(df[onehot_features])
+        onehot_df = pd.DataFrame(
+            onehot_encoded,
+            columns=ohe.get_feature_names_out(onehot_features),
+            index=df.index
+        )
+
+        df = pd.concat([df, onehot_df], axis=1)
+        df.drop(columns=onehot_features, axis=1, inplace=True)
+        # df = df.drop(columns=onehot_features)
+
+    with timed_step(logger, rank, "Bucket pickup and dropoff locations"):
+        # Bucket pickup and dropoff locations
+        df = bucket_locations(df, "PULocationID")
+        df = bucket_locations(df, "DOLocationID")
+        # One-hot encode the buckets
+        pu_dummies = pd.get_dummies(df["PULocationID_bucket"], prefix="pickup_loc")
+        do_dummies = pd.get_dummies(df["DOLocationID_bucket"], prefix="dropoff_loc")
+
+        df = pd.concat([df, pu_dummies, do_dummies], axis=1)
+
+        # Drop the original numeric IDs
+        df = df.drop(columns=["PULocationID", "DOLocationID","PULocationID_bucket", "DOLocationID_bucket"])
+
+    with timed_step(logger, rank, "bucket passenger_count"):
+        # bucket passenger_count
+        df = bucket_passenger_count(df)
     
-    # Drop old columns no longer needed
-    # df = df.drop(columns=['pickup_hour', 'trip_duration', 'pickup_hour_bucket'])
+    with timed_step(logger, rank, "train/test split"):
+        # train/test split using a global RNG sequence (so all processes agree)
+        rng = np.random.RandomState(seed)
+        N = len(df)
+        perm = rng.permutation(N)
+        n_train = int(0.7 * N)
+        train_idx = perm[:n_train]
+        test_idx = perm[n_train:]
 
-    # keep features present only
-    # cols = []
-    # for f in features:
-    #     if f in df.columns:
-    #         cols.append(f)
-    # # Add derived features
-    # # cols += ['trip_duration', 'pickup_hour']
-    # cols += ['trip_duration_minutes', 'pickup_hour_bucket']
+        train = df.iloc[train_idx].reset_index(drop=True)
+        test = df.iloc[test_idx].reset_index(drop=True)
 
-    # We should drop the origin feature and keep the new features
-    # columns_to_drop = ['tpep_pickup_datetime', 'tpep_dropoff_datetime','dropoff_dt','pickup_dt']
-    # Drop the specified columns.
-    # axis=1 tells pandas to drop columns, not rows.
-    # inplace=True modifies the DataFrame directly, without creating a new one.
-    df.drop(columns=columns_to_drop, axis=1, inplace=True)
-    # logger.info(f'\n${df.head(5)}')
-
-    # df.to_csv("tmp/data_step1.csv", index=False)
-    
-
-    # print('=====cols')
-    # print(cols)
-    # For categorical columns, do label encoding (simple). One-hot would explode for PULocationID.
-    # cat_cols = []
-    # for c in ['RatecodeID', 'PULocationID', 'DOLocationID', 'payment_type']:
-    #     if c in df.columns:
-    #         df[c] = df[c].astype('category').cat.codes.astype(float)
-    #         cols.append(c)
-    #         cat_cols.append(c)
-
-    # 1. One-hot encode RatecodeID & payment_type
-    onehot_features = ["RatecodeID", "payment_type"]
-    ohe = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-
-    onehot_encoded = ohe.fit_transform(df[onehot_features])
-    onehot_df = pd.DataFrame(
-        onehot_encoded,
-        columns=ohe.get_feature_names_out(onehot_features),
-        index=df.index
-    )
-
-    # 2. Label encode PULocationID & DOLocationID
-    # label_features = ["PULocationID", "DOLocationID"]
-    # label_encoders = {}
-    # for col in label_features:
-    #     le = LabelEncoder()
-    #     df[col] = le.fit_transform(df[col].astype(str))
-    #     label_encoders[col] = le  # store encoder for inverse transform if needed
-
-    # Bucket pickup and dropoff locations
-    df = bucket_locations(df, "PULocationID")
-    df = bucket_locations(df, "DOLocationID")
-    # One-hot encode the buckets
-    pu_dummies = pd.get_dummies(df["PULocationID_bucket"], prefix="pickup_loc")
-    do_dummies = pd.get_dummies(df["DOLocationID_bucket"], prefix="dropoff_loc")
-
-    df = pd.concat([df, pu_dummies, do_dummies], axis=1)
-
-    # Drop the original numeric IDs
-    df = df.drop(columns=["PULocationID", "DOLocationID",
-                        "PULocationID_bucket", "DOLocationID_bucket"])
-
-    # bucket passenger_count
-    df = bucket_passenger_count(df)
-
-    # -------------------------------
-    # Combine processed features
-    # -------------------------------
-    # Drop original one-hot encoded columns & merge
-    # df = df.drop(columns=onehot_features)
-    columns_to_drop.append("RatecodeID")
-    columns_to_drop.append("payment_type")
-    df = df.drop(columns=onehot_features)
-    logger.info(f'columns_to_drop: ${columns_to_drop}')
-    df = pd.concat([df, onehot_df], axis=1)
-    # logger.info(f'\n${df.head(5)}')
-    # df.to_csv("tmp/data_step2.csv", index=False)
-
-
-    # numerical fill and selection
-    # df = df[cols + [target_col]].copy()
-    # drop rows with NaN (e.g. bad datetimes)
-    # df = df.dropna()
-
-    # print(df.head(2))
-
-    # newFeatures = df.columns
-
-    # train/test split using a global RNG sequence (so all processes agree)
-    rng = np.random.RandomState(seed)
-    N = len(df)
-    perm = rng.permutation(N)
-    n_train = int(0.7 * N)
-    train_idx = perm[:n_train]
-    test_idx = perm[n_train:]
-
-    train = df.iloc[train_idx].reset_index(drop=True)
-    test = df.iloc[test_idx].reset_index(drop=True)
-
-    return train, test
+        return train, test
 
 
 def normalize_train_test(train_df, test_df):
@@ -450,53 +374,40 @@ def train_mpi(args):
         logger.info(f"MPI world size: {size}")
         logger.info(f"Loading dataset from: ${args.data}")
     # Each process reads the CSV and keeps rows where index % size == rank
-    df = pd.read_csv(args.data)
-    logger.info(f'Length Global: ${len(df)}')
-    df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
-    logger.info(f'Length Local: ${len(df_local)}')
-    logger.info(df_local.head(5))
+    with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
+        df = pd.read_csv(args.data)
+        logger.info(f'Length Global: ${len(df)}')
+        df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
+        logger.info(f'Length Local: ${len(df_local)}')
+        # logger.info(df_local.head(5))
 
     features_requested = [
         'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'passenger_count', 'trip_distance',
         'RatecodeID', 'PULocationID', 'DOLocationID', 'payment_type', 'extra'
     ]
     # the preprocess function will handle alternate column names
-    train_df_global, test_df_global  = preprocess_and_split(df_local, features_requested, target_col='total_amount', seed=args.seed)
+    with timed_step(logger, rank, "preprocess_and_split"):
+        train_df_global, test_df_global  = preprocess_and_split(df_local, features_requested, target_col='total_amount', seed=args.seed)
     # logger.info("preprocess_and_split completed")
-    logger.info(f'Length train_df_global: ${len(train_df_global)}')
-    logger.info(f'Length test_df_global: ${len(test_df_global)}')
+    logger.info(f'Length train_df_global: ${len(train_df_global)} test_df_global: ${len(test_df_global)}')
     logger.info(f"newFeatures: {train_df_global.columns}")
 
-    # Now each process selects its local slice from the global train/test (so partitions are consistent)
-    # Note: we want the dataset to be distributed among processes; to do that, we partition the global train and test by row index across processes
-    def local_partition(global_df):
-        N = len(global_df)
-        idxs = np.arange(N)
-        local_mask = (idxs % size) == rank
-        # Base on the rank to pick data from dataset
-        return global_df.iloc[local_mask].reset_index(drop=True)
-    
-    logger.info("Start training local")
-    # train_local = local_partition(train_df_global)
     train_local = train_df_global.copy()
-    logger.info(f'Length train_local: ${len(train_local)}')
-    logger.info("End training local")
-    # test_local = local_partition(test_df_global)
     test_local = test_df_global.copy()
-    logger.info(f'Length test_df_global: ${len(test_df_global)}')
+    logger.info(f'Length train_local: ${len(train_local)} test_df_global: ${len(test_df_global)}')
 
     # normalize using training set global stats: compute on rank 0 and broadcast to others
     # To avoid sending full training set, compute stats on rank 0 and broadcast means/stds
     if rank == 0:
         train_for_stats = train_df_global.copy()
-        train_for_stats.to_csv("train_for_stats.csv", index=False)
+        # train_for_stats.to_csv("sample_data/train_for_stats.csv", index=False)
     else:
         train_for_stats = None
     # We'll construct stats on rank 0 and broadcast via pickleable object
     if rank == 0:
-        logger.info("Start normalize_train_test")
-        train_norm, test_norm, stats, X_cols, target = normalize_train_test(train_for_stats.copy(), test_df_global.copy())
-        # logger.info(f'End normalize_train_test ===\n${stats} \n${X_cols} \n{target}')
+        with timed_step(logger, rank, "normalize_train_test"):
+            train_norm, test_norm, stats, X_cols, target = normalize_train_test(train_for_stats.copy(), test_df_global.copy())
+            logger.info(f'\n{save_and_print_stats(stats)}')
     else:
         train_norm = None
         test_norm = None
@@ -504,204 +415,156 @@ def train_mpi(args):
         X_cols = None
         target = None
 
-    # logger.info(f'stats:${stats}')
-    # logger.info(f'X_cols:${X_cols}')
-
     # broadcast stats, X_cols, target to all ranks
-    stats = comm.bcast(stats, root=0)
-    X_cols = comm.bcast(X_cols, root=0)
-    target = comm.bcast(target, root=0)
-
-    # logger.info(f'After Broadcast ===\n${stats} \n${X_cols}')
-
-    logger.info(f'\n{print_stats(stats)}')
-    
+    with timed_step(logger, rank, "broadcast stats, X_cols, target to all ranks"):
+        stats = comm.bcast(stats, root=0)
+        X_cols = comm.bcast(X_cols, root=0)
+        target = comm.bcast(target, root=0)
 
     # Now apply normalization parameters to local partitions
-    for c, (mean, std) in stats.items():
-        if c in train_local.columns:
-            train_local[c] = (train_local[c] - mean) / std
-        if c in test_local.columns:
-            test_local[c] = (test_local[c] - mean) / std
+    with timed_step(logger, rank, "apply normalization parameters to local partitions"):
+        for c, (mean, std) in stats.items():
+            if c in train_local.columns:
+                train_local[c] = (train_local[c] - mean) / std
+            if c in test_local.columns:
+                test_local[c] = (test_local[c] - mean) / std
 
     # Prepare local arrays
-    X_train = train_local[X_cols].values.astype(np.float64)
-    y_train = train_local[target].values.astype(np.float64)
-    X_test = test_local[X_cols].values.astype(np.float64)
-    y_test = test_local[target].values.astype(np.float64)
+    with timed_step(logger, rank, "Prepare local arrays"):
+        X_train = train_local[X_cols].values.astype(np.float64)
+        y_train = train_local[target].values.astype(np.float64)
+        X_test = test_local[X_cols].values.astype(np.float64)
+        y_test = test_local[target].values.astype(np.float64)
 
-    N_train_local = len(X_train)
-    logger.info(f'N_train_local {N_train_local}')
-    N_train_global = comm.allreduce(N_train_local, op=MPI.SUM)
-    if rank == 0:
-        logger.info(f"Global train size: {N_train_global}, local sizes: {N_train_local}")
+        N_train_local = len(X_train)
+        logger.info(f'N_train_local {N_train_local}')
+        N_train_global = comm.allreduce(N_train_local, op=MPI.SUM)
+        if rank == 0:
+            logger.info(f"Global train size: {N_train_global}, local sizes: {N_train_local}")
 
     # initialize model
     model = OneHiddenNN(input_dim=len(X_cols), hidden_dim=args.hidden, activation=args.activation, seed=args.seed + rank)
 
-    # training loop
-    history = []
-    t0 = time.perf_counter()
-    total_iters = 0
-    rng = np.random.RandomState(args.seed + rank * 13)
+    with timed_step(logger, rank, "Training Loop"):
+        # training loop
+        history = []
+        t0 = time.perf_counter()
+        total_iters = 0
+        rng = np.random.RandomState(args.seed + rank * 13)
+        sync_every = 10  # only sync every 10 batches
+        for epoch in range(args.epochs):
+            # shuffle local indices
+            perm = rng.permutation(N_train_local)
 
-    sync_every = 10  # only sync every 10 batches
-    for epoch in range(args.epochs):
-        # shuffle local indices
-        perm = rng.permutation(N_train_local)
+            # compute local and global batch counts
+            n_batches_local = int(np.ceil(N_train_local / args.batch_size))
+            n_batches_global = comm.allreduce(n_batches_local, op=MPI.MAX)
 
-        # compute local and global batch counts
-        n_batches_local = int(np.ceil(N_train_local / args.batch_size))
-        n_batches_global = comm.allreduce(n_batches_local, op=MPI.MAX)
+            if rank == 0:
+                logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
 
-        if rank == 0:
-            logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
+            for b in range(n_batches_global):
+                start = b * args.batch_size
+                end = start + args.batch_size
 
-        for b in range(n_batches_global):
-            start = b * args.batch_size
-            end = start + args.batch_size
+                if start < N_train_local:
+                    # real batch
+                    batch_idx = perm[start:end]
+                    Xb, yb = X_train[batch_idx], y_train[batch_idx]
 
-            if start < N_train_local:
-                # real batch
-                batch_idx = perm[start:end]
-                Xb, yb = X_train[batch_idx], y_train[batch_idx]
+                    # forward
+                    ypred, cache = model.forward(Xb)
 
-                # forward
-                ypred, cache = model.forward(Xb)
+                    # compute local loss and grad w.r.t outputs
+                    local_loss, grad_out = mse_loss_and_grad(ypred, yb)
 
-                # compute local loss and grad w.r.t outputs
-                local_loss, grad_out = mse_loss_and_grad(ypred, yb)
-
-                # compute grads w.r.t params
-                grads = model.backward(cache, grad_out)
-                grad_vec = model.get_grad_vector(grads)
-                B_local = Xb.shape[0]
-            else:
-                # dummy batch → contribute zeros
-                grad_vec = np.zeros_like(model.get_params_vector())
-                B_local = 0
-
-            # weighted gradient aggregation (important!)
-            weighted_grad = grad_vec * B_local
-            total_weighted_grad = np.zeros_like(weighted_grad)
-            comm.Allreduce(weighted_grad, total_weighted_grad, op=MPI.SUM)
-            
-            # if total_iters % sync_every == 0:
-            #     comm.Allreduce(...)
-
-            # total batch size across all ranks
-            global_B = comm.allreduce(B_local, op=MPI.SUM)
-
-            if global_B > 0:
-                total_grad = total_weighted_grad / float(global_B)
-                # apply update
-                model.apply_update_from_vector(total_grad, args.lr)
-
-            total_iters += 1
-
-            # optionally compute global loss every print_every iters
-            if total_iters % args.print_every == 0:
-                # local SSE on this rank
-                if N_train_local > 0:
-                    ypred_full_local, _ = model.forward(X_train)
-                    local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
+                    # compute grads w.r.t params
+                    grads = model.backward(cache, grad_out)
+                    grad_vec = model.get_grad_vector(grads)
+                    B_local = Xb.shape[0]
                 else:
-                    local_sse = 0.0
+                    # dummy batch → contribute zeros
+                    grad_vec = np.zeros_like(model.get_params_vector())
+                    B_local = 0
 
-                # reduce to get global loss
-                global_sse = comm.allreduce(local_sse, op=MPI.SUM)
+                # weighted gradient aggregation (important!)
+                weighted_grad = grad_vec * B_local
+                total_weighted_grad = np.zeros_like(weighted_grad)
 
-                # average loss per sample
-                Rtheta = global_sse / N_train_global
-                history.append((total_iters, Rtheta))
+                # if total_iters % sync_every == 0:
+                #     with timed_step(logger, rank, "Prepare local arrays"):
+                comm.Allreduce(weighted_grad, total_weighted_grad, op=MPI.SUM)
+                
+                # if total_iters % sync_every == 0:
+                #     comm.Allreduce(...)
 
-                # if rank == 0:
-                logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
+                # total batch size across all ranks
+                global_B = comm.allreduce(B_local, op=MPI.SUM)
 
-    # for epoch in range(args.epochs):
-    #     # shuffle local indices
-    #     perm = rng.permutation(N_train_local)
-    #     # iterate mini-batches on local data
-    #     logger.info('==========epoch START')
-    #     for start in range(0, N_train_local, args.batch_size):
-    #         batch_idx = perm[start:start+args.batch_size]
-    #         if len(batch_idx) == 0:
-    #             continue
-    #         Xb = X_train[batch_idx]
-    #         yb = y_train[batch_idx]
-    #         # forward
-    #         ypred, cache = model.forward(Xb)
-    #         # compute local loss and grad w.r.t outputs
-    #         local_loss, grad_out = mse_loss_and_grad(ypred, yb)
-    #         # compute grads w.r.t params (averaged over local batch inside backward)
-    #         grads = model.backward(cache, grad_out)
-    #         grad_vec = model.get_grad_vector(grads)
-    #         # Now aggregate gradients across processes (average): sum then divide
-    #         total_grad = np.zeros_like(grad_vec)
-    #         comm.Allreduce(grad_vec, total_grad, op=MPI.SUM)
-    #         total_grad /= size  # average across ranks
-    #         # apply update locally
-    #         model.apply_update_from_vector(total_grad, args.lr)
+                if global_B > 0:
+                    total_grad = total_weighted_grad / float(global_B)
+                    # apply update
+                    model.apply_update_from_vector(total_grad, args.lr)
 
-    #         total_iters += 1
-    #         # optionally compute global loss every print_every iters
-    #         if total_iters % args.print_every == 0:
-    #             # logger.info(f'total_grad {total_grad}')
-    #             # compute local sum-of-squared-errors
-    #             ypred_full_local, _ = model.forward(X_train)
-    #             local_sse = np.sum((ypred_full_local - y_train)**2) * 0.5
-    #             # logger.info(f'local_sse {local_sse}')
-    #             # reduce to get global loss
-    #             global_sse = comm.allreduce(local_sse, op=MPI.SUM)
-    #             # compute average loss per sample
-    #             Rtheta = global_sse / N_train_global
-    #             history.append((total_iters, Rtheta))
-    #             # if rank == 0:
-    #             logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
-        # logger.info('==========epoch END')
+                total_iters += 1
 
-    logger.info('=======Training Loop End===')
-    t1 = time.perf_counter()
-    train_time = t1 - t0
+                # optionally compute global loss every print_every iters
+                if total_iters % args.print_every == 0:
+                    # local SSE on this rank
+                    if N_train_local > 0:
+                        ypred_full_local, _ = model.forward(X_train)
+                        local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
+                    else:
+                        local_sse = 0.0
+
+                    # reduce to get global loss
+                    global_sse = comm.allreduce(local_sse, op=MPI.SUM)
+
+                    # average loss per sample
+                    Rtheta = global_sse / N_train_global
+                    history.append((total_iters, Rtheta))
+
+                    # if rank == 0:
+                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
 
     # compute final RMSE on train and test in parallel
     # local contributions
-    if N_train_local > 0:
-        ypred_train_local, _ = model.forward(X_train)
-        sse_train_local = np.sum((ypred_train_local - y_train)**2)
-    else:
-        sse_train_local = 0.0
-    logger.info('=======Before allreduce sse_train_local===')
-    sse_train_global = comm.allreduce(sse_train_local, op=MPI.SUM)
-    logger.info('=======After allreduce sse_train_local===')
-    rmse_train = np.sqrt(sse_train_global / max(1, N_train_global))
+    with timed_step(logger, rank, "compute final RMSE on train and test in parallel"):
+        t1 = time.perf_counter()
+        train_time = t1 - t0
 
-    N_test_local = len(X_test)
-    logger.info('=======Before allreduce N_test_local===')
-    N_test_global = comm.allreduce(N_test_local, op=MPI.SUM)
-    if N_test_local > 0:
-        ypred_test_local, _ = model.forward(X_test)
-        sse_test_local = np.sum((ypred_test_local - y_test)**2)
-    else:
-        sse_test_local = 0.0
-    sse_test_global = comm.allreduce(sse_test_local, op=MPI.SUM)
-    rmse_test = np.sqrt(sse_test_global / max(1, N_test_global))
-    logger.info('=======After allreduce sse_test_global===')
-    # rank 0 prints results
-    if rank == 0:
-        logger.info("\nTraining finished")
-        logger.info(f"Epochs: {args.epochs}, total iters: {total_iters}")
-        logger.info(f"Training time (s): {train_time:.3f}")
-        logger.info(f"RMSE train: {rmse_train:.6f}")
-        logger.info(f"RMSE test:  {rmse_test:.6f}")
-        # optionally save model
-        if args.save_model:
-            params = model.get_params_vector()
-            np.savez(args.save_model, params=params, X_cols=X_cols, stats=stats)
-            logger.info(f"Saved model to {args.save_model}")
+        if N_train_local > 0:
+            ypred_train_local, _ = model.forward(X_train)
+            sse_train_local = np.sum((ypred_train_local - y_train)**2)
+        else:
+            sse_train_local = 0.0
+        sse_train_global = comm.allreduce(sse_train_local, op=MPI.SUM)
+        rmse_train = np.sqrt(sse_train_global / max(1, N_train_global))
+
+        N_test_local = len(X_test)
+        N_test_global = comm.allreduce(N_test_local, op=MPI.SUM)
+        if N_test_local > 0:
+            ypred_test_local, _ = model.forward(X_test)
+            sse_test_local = np.sum((ypred_test_local - y_test)**2)
+        else:
+            sse_test_local = 0.0
+        sse_test_global = comm.allreduce(sse_test_local, op=MPI.SUM)
+        rmse_test = np.sqrt(sse_test_global / max(1, N_test_global))
+        # rank 0 prints results
+        if rank == 0:
+            logger.info("\nTraining finished")
+            logger.info(f"Epochs: {args.epochs}, total iters: {total_iters}")
+            logger.info(f"Training time (s): {train_time:.3f}")
+            logger.info(f"RMSE train: {rmse_train:.6f}")
+            logger.info(f"RMSE test:  {rmse_test:.6f}")
+            # optionally save model
+            if args.save_model:
+                params = model.get_params_vector()
+                np.savez(args.save_model, params=params, X_cols=X_cols, stats=stats)
+                logger.info(f"Saved model to {args.save_model}")
 
     # collect a small sample from the global test set
-    sample_size = min(3, len(X_test))  # take up to 2 from local test
+    sample_size = min(3, len(X_test))  # take up to 3 from local test
     if sample_size > 0:
         sample_X = X_test[:sample_size]
         sample_y = y_test[:sample_size]
@@ -729,7 +592,7 @@ def parse_args():
     p.add_argument('--lr', type=float, default=0.01)
     p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
     p.add_argument('--seed', type=int, default=123)
-    p.add_argument('--print-every', type=int, default=100)
+    p.add_argument('--print-every', type=int, default=1000)
     p.add_argument('--save-model', type=str, default='')
     args = p.parse_args()
     return args
