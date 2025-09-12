@@ -190,6 +190,72 @@ class OneHiddenNN:
         self.set_params_vector(params)
 
 # ------------------ data helpers ------------------
+def bucket_locations(df, col, rare_q=0.2, attract_q=0.8):
+    """
+    Convert location ID into categorical buckets (rare, normal, attractive)
+    based on frequency of occurrence in the dataset.
+
+    Args:
+        df: DataFrame
+        col: column name (e.g., 'PULocationID' or 'DOLocationID')
+        rare_q: quantile threshold for "rare"
+        attract_q: quantile threshold for "attractive"
+
+    Returns:
+        df with new categorical column (col + '_bucket')
+    """
+    counts = df[col].value_counts(normalize=True)  # frequency
+    q_rare = counts.quantile(rare_q)
+    q_attract = counts.quantile(attract_q)
+
+    def label_func(x):
+        freq = counts.get(x, 0)
+        if freq <= q_rare:
+            return "rare"
+        elif freq >= q_attract:
+            return "attractive"
+        else:
+            return "normal"
+
+    new_col = col + "_bucket"
+    df[new_col] = df[col].map(label_func).fillna("rare")
+    return df
+
+def bucket_passenger_count(df, col="passenger_count"):
+    """
+    Bucket passenger_count into 'single', 'normal', 'big_group'.
+    """
+    def label_func(x):
+        if pd.isna(x):
+            return "normal"   # default bucket
+        if x == 1:
+            return "single"
+        elif 2 <= x <= 4:
+            return "normal"
+        else:
+            return "big_group"
+
+    new_col = col + "_bucket"
+    df[new_col] = df[col].apply(label_func)
+
+    # one-hot encode
+    pc_dummies = pd.get_dummies(df[new_col], prefix="passenger")
+    df = pd.concat([df, pc_dummies], axis=1)
+
+    # drop original
+    df = df.drop(columns=[col, new_col])
+    return df
+
+def print_stats(stats, filename="stats.csv"):
+    rows = []
+    for col, (mean, std) in stats.items():
+        if col == "__target__":
+            col = "target (total_amount)"
+        rows.append({"Feature": col, "Mean": float(mean), "Std": float(std)})
+    df = pd.DataFrame(rows).set_index("Feature")
+    pd.DataFrame(rows, columns=["Feature", "Mean", "Std"]).to_csv(filename, index=False)
+    return df.to_string(float_format=lambda x: f"{x:,.3f}")
+
 
 def preprocess_and_split(df, features, target_col, seed=42):
     # drop na
@@ -201,9 +267,9 @@ def preprocess_and_split(df, features, target_col, seed=42):
 
     # filter extreme fares (keep 5%–95%)
     # target = 'total_amount' if 'total_amount' in df.columns else 'total amount'
-    # lower = df[target_col].quantile(0.05)
-    # upper = df[target_col].quantile(0.95)
-    # df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
+    lower = df[target_col].quantile(0.05)
+    upper = df[target_col].quantile(0.95)
+    df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
 
     # print('===END.1')
     # print(df.head(2))
@@ -233,7 +299,7 @@ def preprocess_and_split(df, features, target_col, seed=42):
     df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
 
     # Filter out trips > 300 minutes
-    # df = df[df['trip_duration_minutes'] <= 300].copy()
+    df = df[df['trip_duration_minutes'] <= 300].copy()
 
     df['pickup_hour'] = df['pickup_dt'].dt.hour
     # Bucket pickup_hour
@@ -300,12 +366,28 @@ def preprocess_and_split(df, features, target_col, seed=42):
     )
 
     # 2. Label encode PULocationID & DOLocationID
-    label_features = ["PULocationID", "DOLocationID"]
-    label_encoders = {}
-    for col in label_features:
-        le = LabelEncoder()
-        df[col] = le.fit_transform(df[col].astype(str))
-        label_encoders[col] = le  # store encoder for inverse transform if needed
+    # label_features = ["PULocationID", "DOLocationID"]
+    # label_encoders = {}
+    # for col in label_features:
+    #     le = LabelEncoder()
+    #     df[col] = le.fit_transform(df[col].astype(str))
+    #     label_encoders[col] = le  # store encoder for inverse transform if needed
+
+    # Bucket pickup and dropoff locations
+    df = bucket_locations(df, "PULocationID")
+    df = bucket_locations(df, "DOLocationID")
+    # One-hot encode the buckets
+    pu_dummies = pd.get_dummies(df["PULocationID_bucket"], prefix="pickup_loc")
+    do_dummies = pd.get_dummies(df["DOLocationID_bucket"], prefix="dropoff_loc")
+
+    df = pd.concat([df, pu_dummies, do_dummies], axis=1)
+
+    # Drop the original numeric IDs
+    df = df.drop(columns=["PULocationID", "DOLocationID",
+                        "PULocationID_bucket", "DOLocationID_bucket"])
+
+    # bucket passenger_count
+    df = bucket_passenger_count(df)
 
     # -------------------------------
     # Combine processed features
@@ -328,7 +410,7 @@ def preprocess_and_split(df, features, target_col, seed=42):
 
     # print(df.head(2))
 
-    newFeatures = df.columns
+    # newFeatures = df.columns
 
     # train/test split using a global RNG sequence (so all processes agree)
     rng = np.random.RandomState(seed)
@@ -341,7 +423,7 @@ def preprocess_and_split(df, features, target_col, seed=42):
     train = df.iloc[train_idx].reset_index(drop=True)
     test = df.iloc[test_idx].reset_index(drop=True)
 
-    return train, test, newFeatures
+    return train, test
 
 
 def normalize_train_test(train_df, test_df):
@@ -379,11 +461,11 @@ def train_mpi(args):
         'RatecodeID', 'PULocationID', 'DOLocationID', 'payment_type', 'extra'
     ]
     # the preprocess function will handle alternate column names
-    train_df_global, test_df_global, newFeatures  = preprocess_and_split(df_local, features_requested, target_col='total_amount', seed=args.seed)
+    train_df_global, test_df_global  = preprocess_and_split(df_local, features_requested, target_col='total_amount', seed=args.seed)
     # logger.info("preprocess_and_split completed")
     logger.info(f'Length train_df_global: ${len(train_df_global)}')
     logger.info(f'Length test_df_global: ${len(test_df_global)}')
-    logger.info(f"newFeatures: ${newFeatures}")
+    logger.info(f"newFeatures: {train_df_global.columns}")
 
     # Now each process selects its local slice from the global train/test (so partitions are consistent)
     # Note: we want the dataset to be distributed among processes; to do that, we partition the global train and test by row index across processes
@@ -407,6 +489,7 @@ def train_mpi(args):
     # To avoid sending full training set, compute stats on rank 0 and broadcast means/stds
     if rank == 0:
         train_for_stats = train_df_global.copy()
+        train_for_stats.to_csv("train_for_stats.csv", index=False)
     else:
         train_for_stats = None
     # We'll construct stats on rank 0 and broadcast via pickleable object
@@ -429,7 +512,10 @@ def train_mpi(args):
     X_cols = comm.bcast(X_cols, root=0)
     target = comm.bcast(target, root=0)
 
-    logger.info(f'After Broadcast ===\n${stats} \n${X_cols} \n{target}')
+    # logger.info(f'After Broadcast ===\n${stats} \n${X_cols}')
+
+    logger.info(f'\n{print_stats(stats)}')
+    
 
     # Now apply normalization parameters to local partitions
     for c, (mean, std) in stats.items():
@@ -445,6 +531,7 @@ def train_mpi(args):
     y_test = test_local[target].values.astype(np.float64)
 
     N_train_local = len(X_train)
+    logger.info(f'N_train_local {N_train_local}')
     N_train_global = comm.allreduce(N_train_local, op=MPI.SUM)
     if rank == 0:
         logger.info(f"Global train size: {N_train_global}, local sizes: {N_train_local}")
@@ -458,44 +545,122 @@ def train_mpi(args):
     total_iters = 0
     rng = np.random.RandomState(args.seed + rank * 13)
 
+    sync_every = 10  # only sync every 10 batches
     for epoch in range(args.epochs):
         # shuffle local indices
         perm = rng.permutation(N_train_local)
-        # iterate mini-batches on local data
-        for start in range(0, N_train_local, args.batch_size):
-            batch_idx = perm[start:start+args.batch_size]
-            if len(batch_idx) == 0:
-                continue
-            Xb = X_train[batch_idx]
-            yb = y_train[batch_idx]
-            # forward
-            ypred, cache = model.forward(Xb)
-            # compute local loss and grad w.r.t outputs
-            local_loss, grad_out = mse_loss_and_grad(ypred, yb)
-            # compute grads w.r.t params (averaged over local batch inside backward)
-            grads = model.backward(cache, grad_out)
-            grad_vec = model.get_grad_vector(grads)
-            # Now aggregate gradients across processes (average): sum then divide
-            total_grad = np.zeros_like(grad_vec)
-            comm.Allreduce(grad_vec, total_grad, op=MPI.SUM)
-            total_grad /= size  # average across ranks
-            # apply update locally
-            model.apply_update_from_vector(total_grad, args.lr)
+
+        # compute local and global batch counts
+        n_batches_local = int(np.ceil(N_train_local / args.batch_size))
+        n_batches_global = comm.allreduce(n_batches_local, op=MPI.MAX)
+
+        if rank == 0:
+            logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
+
+        for b in range(n_batches_global):
+            start = b * args.batch_size
+            end = start + args.batch_size
+
+            if start < N_train_local:
+                # real batch
+                batch_idx = perm[start:end]
+                Xb, yb = X_train[batch_idx], y_train[batch_idx]
+
+                # forward
+                ypred, cache = model.forward(Xb)
+
+                # compute local loss and grad w.r.t outputs
+                local_loss, grad_out = mse_loss_and_grad(ypred, yb)
+
+                # compute grads w.r.t params
+                grads = model.backward(cache, grad_out)
+                grad_vec = model.get_grad_vector(grads)
+                B_local = Xb.shape[0]
+            else:
+                # dummy batch → contribute zeros
+                grad_vec = np.zeros_like(model.get_params_vector())
+                B_local = 0
+
+            # weighted gradient aggregation (important!)
+            weighted_grad = grad_vec * B_local
+            total_weighted_grad = np.zeros_like(weighted_grad)
+            comm.Allreduce(weighted_grad, total_weighted_grad, op=MPI.SUM)
+            
+            # if total_iters % sync_every == 0:
+            #     comm.Allreduce(...)
+
+            # total batch size across all ranks
+            global_B = comm.allreduce(B_local, op=MPI.SUM)
+
+            if global_B > 0:
+                total_grad = total_weighted_grad / float(global_B)
+                # apply update
+                model.apply_update_from_vector(total_grad, args.lr)
 
             total_iters += 1
+
             # optionally compute global loss every print_every iters
             if total_iters % args.print_every == 0:
-                # compute local sum-of-squared-errors
-                ypred_full_local, _ = model.forward(X_train)
-                local_sse = np.sum((ypred_full_local - y_train)**2) * 0.5
+                # local SSE on this rank
+                if N_train_local > 0:
+                    ypred_full_local, _ = model.forward(X_train)
+                    local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
+                else:
+                    local_sse = 0.0
+
                 # reduce to get global loss
                 global_sse = comm.allreduce(local_sse, op=MPI.SUM)
-                # compute average loss per sample
+
+                # average loss per sample
                 Rtheta = global_sse / N_train_global
                 history.append((total_iters, Rtheta))
+
                 # if rank == 0:
                 logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
 
+    # for epoch in range(args.epochs):
+    #     # shuffle local indices
+    #     perm = rng.permutation(N_train_local)
+    #     # iterate mini-batches on local data
+    #     logger.info('==========epoch START')
+    #     for start in range(0, N_train_local, args.batch_size):
+    #         batch_idx = perm[start:start+args.batch_size]
+    #         if len(batch_idx) == 0:
+    #             continue
+    #         Xb = X_train[batch_idx]
+    #         yb = y_train[batch_idx]
+    #         # forward
+    #         ypred, cache = model.forward(Xb)
+    #         # compute local loss and grad w.r.t outputs
+    #         local_loss, grad_out = mse_loss_and_grad(ypred, yb)
+    #         # compute grads w.r.t params (averaged over local batch inside backward)
+    #         grads = model.backward(cache, grad_out)
+    #         grad_vec = model.get_grad_vector(grads)
+    #         # Now aggregate gradients across processes (average): sum then divide
+    #         total_grad = np.zeros_like(grad_vec)
+    #         comm.Allreduce(grad_vec, total_grad, op=MPI.SUM)
+    #         total_grad /= size  # average across ranks
+    #         # apply update locally
+    #         model.apply_update_from_vector(total_grad, args.lr)
+
+    #         total_iters += 1
+    #         # optionally compute global loss every print_every iters
+    #         if total_iters % args.print_every == 0:
+    #             # logger.info(f'total_grad {total_grad}')
+    #             # compute local sum-of-squared-errors
+    #             ypred_full_local, _ = model.forward(X_train)
+    #             local_sse = np.sum((ypred_full_local - y_train)**2) * 0.5
+    #             # logger.info(f'local_sse {local_sse}')
+    #             # reduce to get global loss
+    #             global_sse = comm.allreduce(local_sse, op=MPI.SUM)
+    #             # compute average loss per sample
+    #             Rtheta = global_sse / N_train_global
+    #             history.append((total_iters, Rtheta))
+    #             # if rank == 0:
+    #             logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
+        # logger.info('==========epoch END')
+
+    logger.info('=======Training Loop End===')
     t1 = time.perf_counter()
     train_time = t1 - t0
 
@@ -506,10 +671,13 @@ def train_mpi(args):
         sse_train_local = np.sum((ypred_train_local - y_train)**2)
     else:
         sse_train_local = 0.0
+    logger.info('=======Before allreduce sse_train_local===')
     sse_train_global = comm.allreduce(sse_train_local, op=MPI.SUM)
+    logger.info('=======After allreduce sse_train_local===')
     rmse_train = np.sqrt(sse_train_global / max(1, N_train_global))
 
     N_test_local = len(X_test)
+    logger.info('=======Before allreduce N_test_local===')
     N_test_global = comm.allreduce(N_test_local, op=MPI.SUM)
     if N_test_local > 0:
         ypred_test_local, _ = model.forward(X_test)
@@ -518,7 +686,7 @@ def train_mpi(args):
         sse_test_local = 0.0
     sse_test_global = comm.allreduce(sse_test_local, op=MPI.SUM)
     rmse_test = np.sqrt(sse_test_global / max(1, N_test_global))
-
+    logger.info('=======After allreduce sse_test_global===')
     # rank 0 prints results
     if rank == 0:
         logger.info("\nTraining finished")
@@ -533,7 +701,7 @@ def train_mpi(args):
             logger.info(f"Saved model to {args.save_model}")
 
     # collect a small sample from the global test set
-    sample_size = min(2, len(X_test))  # take up to 2 from local test
+    sample_size = min(3, len(X_test))  # take up to 2 from local test
     if sample_size > 0:
         sample_X = X_test[:sample_size]
         sample_y = y_test[:sample_size]

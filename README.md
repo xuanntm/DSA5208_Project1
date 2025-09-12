@@ -30,6 +30,10 @@ mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.cs
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022.csv --epochs 10 --batch-size 512 --hidden 128 --lr 0.001 --activation relu
 
 
+### 5000000
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 30 --batch-size 256 --hidden 64 --lr 0.002 --activation relu
+
+
 --epochs 300 ==> Cham qua khong chiu noi
 
 ## Have to install library for macbook M2
