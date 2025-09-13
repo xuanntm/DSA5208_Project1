@@ -1,15 +1,15 @@
 import pandas as pd
 
 # Define the input and output file paths
-input_file = 'sample_data/nytaxi2022.csv'
-output_file = 'sample_data/nytaxi2022_focus.csv'
+input_file = 'sample_data/nytaxi2022_focus.csv'
+output_file = 'sample_data/nytaxi2022_10000000.csv'
 
 try:
     # Read the first 1000 rows from the CSV file
     focus_columns = ['tpep_pickup_datetime','tpep_dropoff_datetime','passenger_count','trip_distance','RatecodeID','PULocationID','DOLocationID','payment_type','extra','total_amount']
     
-    # df = pd.read_csv(input_file, nrows=5000000)
-    df = pd.read_csv(input_file, usecols=focus_columns)
+    df = pd.read_csv(input_file, nrows=10_000_000)
+    # df = pd.read_csv(input_file, usecols=focus_columns)
     df.to_csv(output_file, index=False)
 
     # Select only these columns from the DataFrame

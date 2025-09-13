@@ -44,8 +44,11 @@ from mpi4py import MPI
 from collections import defaultdict
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
 import logging
-import warnings
 from contextlib import contextmanager
+import psutil
+import sys
+
+# import warnings
 # warnings.filterwarnings("ignore", message="Could not infer format")
 
 
@@ -130,10 +133,12 @@ class OneHiddenNN:
     def __init__(self, input_dim, hidden_dim, activation='relu', seed=1234):
         rng = np.random.RandomState(seed)
         # Xavier init for hidden weights
-        self.W1 = rng.randn(hidden_dim, input_dim) * np.sqrt(2.0 / max(1, input_dim))
+        # self.W1 = rng.randn(hidden_dim, input_dim) * np.sqrt(2.0 / max(1, input_dim))
+        self.W1 = rng.randn(hidden_dim, input_dim) * np.sqrt(2.0 / max(1, input_dim)) * 0.1
         self.b1 = np.zeros((hidden_dim,))
         # output layer weights
-        self.W2 = rng.randn(hidden_dim) * np.sqrt(2.0 / max(1, hidden_dim))
+        # self.W2 = rng.randn(hidden_dim) * np.sqrt(2.0 / max(1, hidden_dim))
+        self.W2 = rng.randn(hidden_dim) * np.sqrt(2.0 / max(1, hidden_dim)) * 0.1
         self.b2 = 0.0
         self.act_name = activation
         self.act, self.act_grad = ACTIVATIONS[activation]
@@ -242,6 +247,33 @@ def bucket_passenger_count(df, col="passenger_count"):
     df = df.drop(columns=[col, new_col])
     return df
 
+def bucket_ratecode(df, col="RatecodeID"):
+    """
+    Collapse RatecodeID into two groups:
+      - 1.0 (standard rate)
+      - other (everything else)
+    """
+    df["RatecodeID_1"] = (df[col] == 1.0).astype(int)
+    df["RatecodeID_other"] = (df[col] != 1.0).astype(int)
+    
+    # drop original column
+    df = df.drop(columns=[col])
+    return df
+
+
+def bucket_payment_type(df, col="payment_type"):
+    """
+    Collapse payment_type into:
+      - card (1)
+      - cash (2)
+      - other (3,4,...)
+    """
+    df["payment_card"] = (df[col] == 1).astype(int)
+    df["payment_cash"] = (df[col] == 2).astype(int)
+    df["payment_other"] = (~df[col].isin([1, 2])).astype(int)
+    
+    return df.drop(columns=[col])
+
 def save_and_print_stats(stats, filename="stats.csv"):
     rows = []
     for col, (mean, std) in stats.items():
@@ -262,8 +294,19 @@ def preprocess_and_split(df, features, target_col, seed=42):
         lower = df[target_col].quantile(0.05)
         upper = df[target_col].quantile(0.95)
         df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
-        logger.info(f'Length After Drop: ${len(df)}')
+        
 
+    # filter use quantile trimming
+    with timed_step(logger, rank, "bad GPS logs, missing, or too far"):
+        # remove near-zero distances
+        df = df[df["trip_distance"] > 0.1]
+
+        # remove unrealistic long trips
+        df = df[df["trip_distance"] < 100]
+        # low, high = df["trip_distance"].quantile([0.01, 0.99])
+        # df = df[(df["trip_distance"] > low) & (df["trip_distance"] < high)]
+    
+    logger.info(f'Length After Drop: ${len(df)}')
 
     # parse datetime fields if present and create simple features
     with timed_step(logger, rank, "create simple features"):
@@ -297,20 +340,8 @@ def preprocess_and_split(df, features, target_col, seed=42):
         df.drop(columns=tmp_dt_features, axis=1, inplace=True)
 
     with timed_step(logger, rank, "One-hot encode RatecodeID & payment_type"):
-        # 1. One-hot encode RatecodeID & payment_type
-        onehot_features = ["RatecodeID", "payment_type"]
-        ohe = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-
-        onehot_encoded = ohe.fit_transform(df[onehot_features])
-        onehot_df = pd.DataFrame(
-            onehot_encoded,
-            columns=ohe.get_feature_names_out(onehot_features),
-            index=df.index
-        )
-
-        df = pd.concat([df, onehot_df], axis=1)
-        df.drop(columns=onehot_features, axis=1, inplace=True)
-        # df = df.drop(columns=onehot_features)
+        df = bucket_ratecode(df)
+        df = bucket_payment_type(df)
 
     with timed_step(logger, rank, "Bucket pickup and dropoff locations"):
         # Bucket pickup and dropoff locations
@@ -443,7 +474,7 @@ def train_mpi(args):
     # initialize model
     model = OneHiddenNN(input_dim=len(X_cols), hidden_dim=args.hidden, activation=args.activation, seed=args.seed + rank)
 
-    with timed_step(logger, rank, "Training Loop"):
+    with timed_step(logger, rank, "========Training Loop====="):
         # training loop
         history = []
         t0 = time.perf_counter()
@@ -460,7 +491,10 @@ def train_mpi(args):
 
             if rank == 0:
                 logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
-
+                # safety check
+                if psutil.cpu_percent(interval=2) > 80:
+                    print("⚠️ CPU too high, aborting all ranks.")
+                    comm.Abort(1)
             for b in range(n_batches_global):
                 start = b * args.batch_size
                 end = start + args.batch_size
@@ -523,7 +557,7 @@ def train_mpi(args):
                     history.append((total_iters, Rtheta))
 
                     # if rank == 0:
-                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
+                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}, R_local(θ)={local_sse:.6f}")
 
     # compute final RMSE on train and test in parallel
     # local contributions
@@ -590,7 +624,7 @@ def parse_args():
     p.add_argument('--lr', type=float, default=0.01)
     p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
     p.add_argument('--seed', type=int, default=123)
-    p.add_argument('--print-every', type=int, default=1000)
+    p.add_argument('--print-every', type=int, default=250)
     p.add_argument('--save-model', type=str, default='')
     args = p.parse_args()
     return args

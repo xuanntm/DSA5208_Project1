@@ -34,8 +34,17 @@ mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022.csv --epoc
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 30 --batch-size 256 --hidden 64 --lr 0.002 --activation relu
 
 
-### Good running with 5_000_000 rows
+### Good running with 5_000_000 rows ========Training Loop===== took 51.1316 sec
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 15 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+
+### 5_000_000 rows ========Training Loop===== took 45.7661 sec
+mpiexec -n 8 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 15 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+
+### 5_000_000 rows ========Training Loop===== took 31.3852 sec
+mpiexec -n 8 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+
+### 10_000_000 rows ========Training Loop===== took 31.3852 sec
+mpiexec -n 8 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_10_000_000.csv --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
 
 
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022.csv --epochs 15 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
