@@ -43,7 +43,7 @@ mpiexec -n 8 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.cs
 ### 5_000_000 rows ========Training Loop===== took 31.3852 sec
 mpiexec -n 8 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
 
-### 10_000_000 rows ========Training Loop===== took 31.3852 sec
+### 10_000_000 rows ========Training Loop===== took 55.3736 sec
 mpiexec -n 8 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_10_000_000.csv --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
 
 
@@ -60,3 +60,15 @@ brew install open-mpi
 ## How to filter the invalid data ?
 1. negative data
 2. random data
+
+```
+'tpep_pickup_datetime' => simplify ==> minutes: <0, ... <300(5 hours), 000
+'tpep_dropoff_datetime'
+'passenger_count' -> Number descrete: 1, 2, other
+'trip_distance' -> Number Liner
+'RatecodeID' -> Number descrete: 1, other
+'PULocationID' -> frequency: 10%, .., 90%
+'DOLocationID' -> frequency
+'payment_type' -> Number descrete: 1,2, other
+'extra' -> Number Liner
+```

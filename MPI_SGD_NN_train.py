@@ -41,17 +41,16 @@ import time
 import numpy as np
 import pandas as pd
 from mpi4py import MPI
-from collections import defaultdict
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
+# from collections import defaultdict
+# from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
 import logging
 from contextlib import contextmanager
 import psutil
-import sys
 
 # import warnings
 # warnings.filterwarnings("ignore", message="Could not infer format")
 
-
+# ------------------ Init MPI ------------------
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
@@ -191,7 +190,7 @@ class OneHiddenNN:
         self.set_params_vector(params)
 
 # ------------------ data helpers ------------------
-def bucket_locations(df, col, rare_q=0.2, attract_q=0.8):
+def bucket_locations(df, col, rare_q=0.1, attract_q=0.9):
     """
     Convert location ID into categorical buckets (rare, normal, attractive)
     based on frequency of occurrence in the dataset.
@@ -228,13 +227,13 @@ def bucket_passenger_count(df, col="passenger_count"):
     """
     def label_func(x):
         if pd.isna(x):
-            return "normal"   # default bucket
+            return "other"   # default bucket
         if x == 1:
             return "single"
-        elif 2 <= x <= 4:
-            return "normal"
+        elif 2 == x:
+            return "double"
         else:
-            return "big_group"
+            return "other"
 
     new_col = col + "_bucket"
     df[new_col] = df[col].apply(label_func)
@@ -260,7 +259,6 @@ def bucket_ratecode(df, col="RatecodeID"):
     df = df.drop(columns=[col])
     return df
 
-
 def bucket_payment_type(df, col="payment_type"):
     """
     Collapse payment_type into:
@@ -268,8 +266,8 @@ def bucket_payment_type(df, col="payment_type"):
       - cash (2)
       - other (3,4,...)
     """
-    df["payment_card"] = (df[col] == 1).astype(int)
-    df["payment_cash"] = (df[col] == 2).astype(int)
+    df["payment_1"] = (df[col] == 1).astype(int)
+    df["payment_2"] = (df[col] == 2).astype(int)
     df["payment_other"] = (~df[col].isin([1, 2])).astype(int)
     
     return df.drop(columns=[col])
@@ -290,22 +288,23 @@ def preprocess_and_split(df, features, target_col, seed=42):
     df = df.dropna(subset=features + [target_col]).copy()
 
     # filter extreme fares (keep 5%–95%)
-    with timed_step(logger, rank, "dropna 5% highest and lowest"):
+    with timed_step(logger, rank, "drop 5% highest and lowest"):
         lower = df[target_col].quantile(0.05)
         upper = df[target_col].quantile(0.95)
         df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
         
 
-    # filter use quantile trimming
+    # filter use quantile trimming for trip_distance data
     with timed_step(logger, rank, "bad GPS logs, missing, or too far"):
-        # remove near-zero distances
+        # remove near-zero distances , filter to show only > 0.1
         df = df[df["trip_distance"] > 0.1]
-
-        # remove unrealistic long trips
+        # remove unrealistic long trips, filter to show only <100
         df = df[df["trip_distance"] < 100]
+        # other option:
         # low, high = df["trip_distance"].quantile([0.01, 0.99])
         # df = df[(df["trip_distance"] > low) & (df["trip_distance"] < high)]
     
+    #checking after drop invalid data to show length of data
     logger.info(f'Length After Drop: ${len(df)}')
 
     # parse datetime fields if present and create simple features
@@ -317,18 +316,18 @@ def preprocess_and_split(df, features, target_col, seed=42):
             df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
         
         # Filter out trips > 300 minutes
-        df = df[df['trip_duration_minutes'] <= 300].copy()
+        df = df[(df['trip_duration_minutes'] > 0) & (df['trip_duration_minutes'] <= 300)].copy()
 
         with timed_step(logger, rank, "Bucket pickup_hour"):
             df['pickup_hour'] = df['pickup_dt'].dt.hour
             # Bucket pickup_hour
             def demand_bucket(hour):
-                if 2 <= hour < 6:
-                    return "low"
-                elif 6 <= hour < 16:
+                if 14 <= hour <= 18:
+                    return "high"
+                elif 8 <= hour <= 13 or 19 <= hour <= 22:
                     return "normal"
                 else:
-                    return "high"
+                    return "low"
 
             df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
 
@@ -409,33 +408,26 @@ def train_mpi(args):
     with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
         df = pd.read_csv(args.data, usecols=focus_columns)
         logger.info(f'Length Global: ${len(df)}')
+        # number of rank = portion of data divided to each process, e.g. 1ml data row, with size = 4, each process handle 250k data
         df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
         logger.info(f'Length Local: ${len(df_local)}')
         # logger.info(df_local.head(5))
 
-    
-    # the preprocess function will handle alternate column names
     with timed_step(logger, rank, "preprocess_and_split"):
-        train_df_global, test_df_global  = preprocess_and_split(df_local, features_requested, target_col=target_col, seed=args.seed)
-    # logger.info("preprocess_and_split completed")
-    logger.info(f'Length train_df_global: ${len(train_df_global)} test_df_global: ${len(test_df_global)}')
-    logger.info(f"newFeatures: {train_df_global.columns}")
-
-    train_local = train_df_global.copy()
-    test_local = test_df_global.copy()
-    logger.info(f'Length train_local: ${len(train_local)} test_df_global: ${len(test_df_global)}')
+        train_local, test_local  = preprocess_and_split(df_local, features_requested, target_col=target_col, seed=args.seed)
+        logger.info(f'Length train_local: ${len(train_local)} test_local: ${len(test_local)}')
 
     # normalize using training set global stats: compute on rank 0 and broadcast to others
     # To avoid sending full training set, compute stats on rank 0 and broadcast means/stds
     if rank == 0:
-        train_for_stats = train_df_global.copy()
+        train_for_stats = train_local.copy()
         # train_for_stats.to_csv("sample_data/train_for_stats.csv", index=False)
     else:
         train_for_stats = None
     # We'll construct stats on rank 0 and broadcast via pickleable object
     if rank == 0:
         with timed_step(logger, rank, "normalize_train_test"):
-            train_norm, test_norm, stats, X_cols, target = normalize_train_test(train_for_stats.copy(), test_df_global.copy())
+            train_norm, test_norm, stats, X_cols, target = normalize_train_test(train_for_stats.copy(), test_local.copy())
             logger.info(f'\n{save_and_print_stats(stats)}')
     else:
         train_norm = None
@@ -480,7 +472,7 @@ def train_mpi(args):
         t0 = time.perf_counter()
         total_iters = 0
         rng = np.random.RandomState(args.seed + rank * 13)
-        sync_every = 10  # only sync every 10 batches
+        sync_every = 20  # only sync every 10 batches
         for epoch in range(args.epochs):
             # shuffle local indices
             perm = rng.permutation(N_train_local)
@@ -492,7 +484,7 @@ def train_mpi(args):
             if rank == 0:
                 logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
                 # safety check
-                if psutil.cpu_percent(interval=2) > 80:
+                if psutil.cpu_percent(interval=2) > 90:
                     print("⚠️ CPU too high, aborting all ranks.")
                     comm.Abort(1)
             for b in range(n_batches_global):
@@ -523,13 +515,10 @@ def train_mpi(args):
                 weighted_grad = grad_vec * B_local
                 total_weighted_grad = np.zeros_like(weighted_grad)
 
-                # if total_iters % sync_every == 0:
-                #     with timed_step(logger, rank, "Prepare local arrays"):
-                comm.Allreduce(weighted_grad, total_weighted_grad, op=MPI.SUM)
+                if total_iters % sync_every == 0:
+                    # with timed_step(logger, rank, "Allreduce weighted gradient"):
+                    comm.Allreduce(weighted_grad, total_weighted_grad, op=MPI.SUM)
                 
-                # if total_iters % sync_every == 0:
-                #     comm.Allreduce(...)
-
                 # total batch size across all ranks
                 global_B = comm.allreduce(B_local, op=MPI.SUM)
 
