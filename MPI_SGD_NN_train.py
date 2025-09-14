@@ -1,54 +1,12 @@
-"""
-README & Usage (top of file)
-
-This single-file implementation provides an MPI-parallel Stochastic Gradient Descent
-trainer for a one-hidden-layer neural network written in Python using mpi4py.
-
-Features:
-- One-hidden-layer neural network (configurable hidden neurons)
-- Supports activation functions: relu, tanh, sigmoid
-- Mini-batch SGD with distributed gradient computation and MPI_Allreduce aggregation
-- Local data partitioning (each process reads the CSV and keeps its slice)
-- Preprocessing: drops NA, simple datetime features (pickup/dropoff -> duration, pickup hour), label-encoding for categorical fields, normalization
-- Train/test split (global, consistent across processes) 70/30
-- Reports training and test RMSE, training history (loss vs iteration), and timing
-
-Requirements:
-- Python 3.8+
-- mpi4py
-- numpy
-- pandas
-
-Install dependencies:
-    pip install mpi4py numpy pandas
-
-Run (example using 4 processes):
-    mpiexec -n 4 python MPI_SGD_NN_train.py --data nytaxi2022.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.01 --activation relu
-
-Important notes about parallelism:
-- Each process reads the full CSV, but keeps only a roughly-even partition of rows by index: rows where (index % world_size) == rank. This avoids sending datasets between processes during training.
-- During training each process forms local mini-batches from its local partition. For each local mini-batch the process computes a local gradient (averaged over its mini-batch). The processes then use MPI_Allreduce to compute the global average gradient across processes. All processes then apply the same weight update so parameters remain synchronized.
-
-Outputs:
-- Training history printed to stdout on rank 0
-- Final RMSEs printed to stdout on rank 0
-- Optionally, you can save model parameters to a npz file by passing --save-model model.npz
-
-"""
-
 import argparse
 import time
 import numpy as np
 import pandas as pd
 from mpi4py import MPI
-# from collections import defaultdict
-# from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
 import logging
 from contextlib import contextmanager
 import psutil
 
-# import warnings
-# warnings.filterwarnings("ignore", message="Could not infer format")
 
 # ------------------ Init MPI ------------------
 comm = MPI.COMM_WORLD
@@ -190,6 +148,39 @@ class OneHiddenNN:
         self.set_params_vector(params)
 
 # ------------------ data helpers ------------------
+def demand_bucket(hour):
+    if 14 <= hour <= 18:
+        return "high"
+    elif 8 <= hour <= 13 or 19 <= hour <= 22:
+        return "normal"
+    else:
+        return "low"
+
+def simplify_date_time (df):
+    format_string = "%m/%d/%Y %I:%M:%S %p"
+    with timed_step(logger, rank, "create simple features"):
+        df['pickup_dt'] = pd.to_datetime(df['tpep_pickup_datetime'], format=format_string, errors='coerce')
+        df['dropoff_dt'] = pd.to_datetime(df['tpep_dropoff_datetime'], format=format_string, errors='coerce')
+        df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
+    
+    # Filter out trips > 300 minutes
+    df = df[(df['trip_duration_minutes'] > 0) & (df['trip_duration_minutes'] <= 300)].copy()
+
+    with timed_step(logger, rank, "Bucket pickup_hour"):
+        df['pickup_hour'] = df['pickup_dt'].dt.hour
+        # Bucket pickup_hour
+        
+
+        df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
+
+        # One-hot encode pickup_hour_bucket
+        pickup_dummies = pd.get_dummies(df['pickup_hour_bucket'], prefix="pickup_hour")
+        # logger.info(f'pickup_dummies: ${pickup_dummies}')
+        df = pd.concat([df, pickup_dummies], axis=1)
+    tmp_dt_features = ['tpep_pickup_datetime','tpep_dropoff_datetime','pickup_dt','dropoff_dt','pickup_hour','pickup_hour_bucket']
+    df.drop(columns=tmp_dt_features, axis=1, inplace=True)
+    return df
+
 def bucket_locations(df, col, rare_q=0.1, attract_q=0.9):
     """
     Convert location ID into categorical buckets (rare, normal, attractive)
@@ -309,34 +300,7 @@ def preprocess_and_split(df, features, target_col, seed=42):
 
     # parse datetime fields if present and create simple features
     with timed_step(logger, rank, "create simple features"):
-        format_string = "%m/%d/%Y %I:%M:%S %p"
-        with timed_step(logger, rank, "create simple features"):
-            df['pickup_dt'] = pd.to_datetime(df['tpep_pickup_datetime'], format=format_string, errors='coerce')
-            df['dropoff_dt'] = pd.to_datetime(df['tpep_dropoff_datetime'], format=format_string, errors='coerce')
-            df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
-        
-        # Filter out trips > 300 minutes
-        df = df[(df['trip_duration_minutes'] > 0) & (df['trip_duration_minutes'] <= 300)].copy()
-
-        with timed_step(logger, rank, "Bucket pickup_hour"):
-            df['pickup_hour'] = df['pickup_dt'].dt.hour
-            # Bucket pickup_hour
-            def demand_bucket(hour):
-                if 14 <= hour <= 18:
-                    return "high"
-                elif 8 <= hour <= 13 or 19 <= hour <= 22:
-                    return "normal"
-                else:
-                    return "low"
-
-            df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
-
-            # One-hot encode pickup_hour_bucket
-            pickup_dummies = pd.get_dummies(df['pickup_hour_bucket'], prefix="pickup_hour")
-            # logger.info(f'pickup_dummies: ${pickup_dummies}')
-            df = pd.concat([df, pickup_dummies], axis=1)
-        tmp_dt_features = ['tpep_pickup_datetime','tpep_dropoff_datetime','pickup_dt','dropoff_dt','pickup_hour','pickup_hour_bucket']
-        df.drop(columns=tmp_dt_features, axis=1, inplace=True)
+        df = simplify_date_time(df)
 
     with timed_step(logger, rank, "One-hot encode RatecodeID & payment_type"):
         df = bucket_ratecode(df)
