@@ -169,7 +169,6 @@ def simplify_date_time (df):
     with timed_step(logger, rank, "Bucket pickup_hour"):
         df['pickup_hour'] = df['pickup_dt'].dt.hour
         # Bucket pickup_hour
-        
 
         df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
 
@@ -272,7 +271,6 @@ def save_and_print_stats(stats, filename="stats.csv"):
     df = pd.DataFrame(rows).set_index("Feature")
     pd.DataFrame(rows, columns=["Feature", "Mean", "Std"]).to_csv(filename, index=False)
     return df.to_string(float_format=lambda x: f"{x:,.3f}")
-
 
 def preprocess_and_split(df, features, target_col, seed=42):
     # drop na
