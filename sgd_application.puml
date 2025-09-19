@@ -1,7 +1,13 @@
 @startuml
+
+title  MPI to divide workload 
+
 |Rank 0|
 start
 :Load dataset (local partition);
+:data analyze and 
+bucket (Dropoff time, payment_type, ratecode,passenger count)
+new column trip_duration = dropoff_time - pickup_time;
 :Preprocess (drop NA, trim 5-95%, normalize, encode);
 :Initialize model parameters;
 repeat
@@ -38,4 +44,8 @@ repeat while (epoch < max_epochs)
 :Compute RMSE contribution;
 :Stop;
 stop
+
+legend
+ 
+end legend 
 @enduml

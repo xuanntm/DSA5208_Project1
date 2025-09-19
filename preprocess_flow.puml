@@ -1,0 +1,41 @@
+@startuml
+
+title  Preprocess Data Flow
+
+start
+:=1.Load Data set 
+* for required features and target columns
+* the script make after analyze on the data set
+* supported tools and framework: pandas, spark, notebook;
+:=2.drop row with na value;
+:=3.Filtering extra
+|_ > 0;
+:=4.Filtering trip_distance
+|_ 0.1 -> 100 miles;
+:=5.Filtering trips duration
+|_ 2 -> 300 minutes;
+:=6.Filtering extreme fares
+|_ 3% -> 97%;
+
+:=7.Group demand by pickup hour
+|_ low, normal, high;
+
+:=8.group passenger count
+|_ single, double, other;
+
+:=9.group RatecodeID
+|_ 1, other ;
+
+:=10.group payment_type
+|_ 1, 2, other ;
+
+:=11.Computing PULocationID rank
+|_ 1 -> 10;
+
+:=12.Computing DOLocationID rank
+|_ 1 -> 10;
+
+:=13.Drop temporary columns and save;
+stop
+
+@enduml

@@ -78,3 +78,10 @@ brew install open-mpi
 
 
 export MY_PYTHON=/Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python3
+
+
+### Working
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/cleaned_data_10_000_000.csv --epochs 5 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+
+
+mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/cleaned_data_10_000_000.csv --epochs 5 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu

@@ -147,121 +147,7 @@ class OneHiddenNN:
         params = params - lr * update_vec
         self.set_params_vector(params)
 
-# ------------------ data helpers ------------------
-def demand_bucket(hour):
-    if 14 <= hour <= 18:
-        return "high"
-    elif 8 <= hour <= 13 or 19 <= hour <= 22:
-        return "normal"
-    else:
-        return "low"
-
-def simplify_date_time (df):
-    format_string = "%m/%d/%Y %I:%M:%S %p"
-    with timed_step(logger, rank, "create simple features"):
-        df['pickup_dt'] = pd.to_datetime(df['tpep_pickup_datetime'], format=format_string, errors='coerce')
-        df['dropoff_dt'] = pd.to_datetime(df['tpep_dropoff_datetime'], format=format_string, errors='coerce')
-        df['trip_duration_minutes'] = (df['dropoff_dt'] - df['pickup_dt']).dt.total_seconds() / 60.0
-    
-    # Filter out trips > 300 minutes
-    df = df[(df['trip_duration_minutes'] > 0) & (df['trip_duration_minutes'] <= 300)].copy()
-
-    with timed_step(logger, rank, "Bucket pickup_hour"):
-        df['pickup_hour'] = df['pickup_dt'].dt.hour
-        # Bucket pickup_hour
-
-        df['pickup_hour_bucket'] = df['pickup_hour'].apply(demand_bucket)
-
-        # One-hot encode pickup_hour_bucket
-        pickup_dummies = pd.get_dummies(df['pickup_hour_bucket'], prefix="pickup_hour")
-        # logger.info(f'pickup_dummies: ${pickup_dummies}')
-        df = pd.concat([df, pickup_dummies], axis=1)
-    tmp_dt_features = ['tpep_pickup_datetime','tpep_dropoff_datetime','pickup_dt','dropoff_dt','pickup_hour','pickup_hour_bucket']
-    df.drop(columns=tmp_dt_features, axis=1, inplace=True)
-    return df
-
-def bucket_locations(df, col, rare_q=0.1, attract_q=0.9):
-    """
-    Convert location ID into categorical buckets (rare, normal, attractive)
-    based on frequency of occurrence in the dataset.
-
-    Args:
-        df: DataFrame
-        col: column name (e.g., 'PULocationID' or 'DOLocationID')
-        rare_q: quantile threshold for "rare"
-        attract_q: quantile threshold for "attractive"
-
-    Returns:
-        df with new categorical column (col + '_bucket')
-    """
-    counts = df[col].value_counts(normalize=True)  # frequency
-    q_rare = counts.quantile(rare_q)
-    q_attract = counts.quantile(attract_q)
-
-    def label_func(x):
-        freq = counts.get(x, 0)
-        if freq <= q_rare:
-            return "rare"
-        elif freq >= q_attract:
-            return "attractive"
-        else:
-            return "normal"
-
-    new_col = col + "_bucket"
-    df[new_col] = df[col].map(label_func).fillna("rare")
-    return df
-
-def bucket_passenger_count(df, col="passenger_count"):
-    """
-    Bucket passenger_count into 'single', 'normal', 'big_group'.
-    """
-    def label_func(x):
-        if pd.isna(x):
-            return "other"   # default bucket
-        if x == 1:
-            return "single"
-        elif 2 == x:
-            return "double"
-        else:
-            return "other"
-
-    new_col = col + "_bucket"
-    df[new_col] = df[col].apply(label_func)
-
-    # one-hot encode
-    pc_dummies = pd.get_dummies(df[new_col], prefix="passenger")
-    df = pd.concat([df, pc_dummies], axis=1)
-
-    # drop original
-    df = df.drop(columns=[col, new_col])
-    return df
-
-def bucket_ratecode(df, col="RatecodeID"):
-    """
-    Collapse RatecodeID into two groups:
-      - 1.0 (standard rate)
-      - other (everything else)
-    """
-    df["RatecodeID_1"] = (df[col] == 1.0).astype(int)
-    df["RatecodeID_other"] = (df[col] != 1.0).astype(int)
-    
-    # drop original column
-    df = df.drop(columns=[col])
-    return df
-
-def bucket_payment_type(df, col="payment_type"):
-    """
-    Collapse payment_type into:
-      - card (1)
-      - cash (2)
-      - other (3,4,...)
-    """
-    df["payment_1"] = (df[col] == 1).astype(int)
-    df["payment_2"] = (df[col] == 2).astype(int)
-    df["payment_other"] = (~df[col].isin([1, 2])).astype(int)
-    
-    return df.drop(columns=[col])
-
+# ------------------ neural network ------------------
 def save_and_print_stats(stats, filename="stats.csv"):
     rows = []
     for col, (mean, std) in stats.items():
@@ -272,76 +158,24 @@ def save_and_print_stats(stats, filename="stats.csv"):
     pd.DataFrame(rows, columns=["Feature", "Mean", "Std"]).to_csv(filename, index=False)
     return df.to_string(float_format=lambda x: f"{x:,.3f}")
 
-def preprocess_and_split(df, features, target_col, seed=42):
-    # drop na
-    df = df.dropna(subset=features + [target_col]).copy()
+def split_for_training(df, seed=42):
+    # train/test split using a global RNG sequence (so all processes agree)
+    rng = np.random.RandomState(seed)
+    N = len(df)
+    perm = rng.permutation(N)
+    n_train = int(0.7 * N)
+    train_idx = perm[:n_train]
+    test_idx = perm[n_train:]
 
-    # filter extreme fares (keep 5%–95%)
-    with timed_step(logger, rank, "drop 5% highest and lowest"):
-        lower = df[target_col].quantile(0.05)
-        upper = df[target_col].quantile(0.95)
-        df = df[(df[target_col] >= lower) & (df[target_col] <= upper)].copy()
-        
+    train = df.iloc[train_idx].reset_index(drop=True)
+    test = df.iloc[test_idx].reset_index(drop=True)
 
-    # filter use quantile trimming for trip_distance data
-    with timed_step(logger, rank, "bad GPS logs, missing, or too far"):
-        # remove near-zero distances , filter to show only > 0.1
-        df = df[df["trip_distance"] > 0.1]
-        # remove unrealistic long trips, filter to show only <100
-        df = df[df["trip_distance"] < 100]
-        # other option:
-        # low, high = df["trip_distance"].quantile([0.01, 0.99])
-        # df = df[(df["trip_distance"] > low) & (df["trip_distance"] < high)]
-    
-    #checking after drop invalid data to show length of data
-    logger.info(f'Length After Drop: ${len(df)}')
+    return train, test
 
-    # parse datetime fields if present and create simple features
-    with timed_step(logger, rank, "create simple features"):
-        df = simplify_date_time(df)
-
-    with timed_step(logger, rank, "One-hot encode RatecodeID & payment_type"):
-        df = bucket_ratecode(df)
-        df = bucket_payment_type(df)
-
-    with timed_step(logger, rank, "Bucket pickup and dropoff locations"):
-        # Bucket pickup and dropoff locations
-        df = bucket_locations(df, "PULocationID")
-        df = bucket_locations(df, "DOLocationID")
-        # One-hot encode the buckets
-        pu_dummies = pd.get_dummies(df["PULocationID_bucket"], prefix="pickup_loc")
-        do_dummies = pd.get_dummies(df["DOLocationID_bucket"], prefix="dropoff_loc")
-
-        df = pd.concat([df, pu_dummies, do_dummies], axis=1)
-
-        # Drop the original numeric IDs
-        df = df.drop(columns=["PULocationID", "DOLocationID","PULocationID_bucket", "DOLocationID_bucket"])
-
-    with timed_step(logger, rank, "bucket passenger_count"):
-        # bucket passenger_count
-        df = bucket_passenger_count(df)
-    
-    with timed_step(logger, rank, "train/test split"):
-        # train/test split using a global RNG sequence (so all processes agree)
-        rng = np.random.RandomState(seed)
-        N = len(df)
-        perm = rng.permutation(N)
-        n_train = int(0.7 * N)
-        train_idx = perm[:n_train]
-        test_idx = perm[n_train:]
-
-        train = df.iloc[train_idx].reset_index(drop=True)
-        test = df.iloc[test_idx].reset_index(drop=True)
-
-        return train, test
-
-
-def normalize_train_test(train_df, test_df):
+def normalize_train_test(train_df, test_df, target):
     # compute mean/std on train
     stats = {}
-    X_cols = [c for c in train_df.columns if c != 'total_amount' and c != 'total amount']
-    # unify target col name
-    target = 'total_amount' if 'total_amount' in train_df.columns else 'total amount'
+    X_cols = [c for c in train_df.columns if c != target]
     for c in X_cols:
         mean = train_df[c].mean()
         std = train_df[c].std()
@@ -350,7 +184,7 @@ def normalize_train_test(train_df, test_df):
         train_df[c] = (train_df[c] - mean) / std
         test_df[c] = (test_df[c] - mean) / std
         stats[c] = (mean, std)
-    return train_df, test_df, stats, X_cols, target
+    return train_df, test_df, stats, X_cols
 
 # ------------------ training routine ------------------
 
@@ -359,45 +193,42 @@ def train_mpi(args):
     if rank == 0:
         logger.info(f"MPI world size: {size}")
         logger.info(f"Loading dataset from: ${args.data}")
-    # Each process reads the CSV and keeps rows where index % size == rank
-    features_requested = [
-        'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'passenger_count', 'trip_distance',
-        'RatecodeID', 'PULocationID', 'DOLocationID', 'payment_type', 'extra'
-    ]
-    target_col='total_amount'
-    focus_columns = features_requested.append(target_col)
-
+    target='total_amount'
     with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
-        df = pd.read_csv(args.data, usecols=focus_columns)
+        df = pd.read_csv(args.data)
+        lower = df[target].quantile(0.03)
+        upper = df[target].quantile(0.97)
+        df = df[(df[target] >= lower) & (df[target] <= upper)].copy()
         logger.info(f'Length Global: ${len(df)}')
         # number of rank = portion of data divided to each process, e.g. 1ml data row, with size = 4, each process handle 250k data
+        # Each process reads the CSV and keeps rows where index % size (remainder) == rank 
         df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
         logger.info(f'Length Local: ${len(df_local)}')
         # logger.info(df_local.head(5))
 
-    with timed_step(logger, rank, "preprocess_and_split"):
-        train_local, test_local  = preprocess_and_split(df_local, features_requested, target_col=target_col, seed=args.seed)
+    with timed_step(logger, rank, "split_for_training"):
+        train_local, test_local  = split_for_training(df_local, seed=args.seed)
         logger.info(f'Length train_local: ${len(train_local)} test_local: ${len(test_local)}')
 
     # normalize using training set global stats: compute on rank 0 and broadcast to others
     # To avoid sending full training set, compute stats on rank 0 and broadcast means/stds
+    
     if rank == 0:
         train_for_stats = train_local.copy()
+        with timed_step(logger, rank, "normalize_train_test"):
+            train_norm, test_norm, stats, X_cols = normalize_train_test(train_for_stats.copy(), test_local.copy(), target)
+            logger.info(f'\n{save_and_print_stats(stats)}')
         # train_for_stats.to_csv("sample_data/train_for_stats.csv", index=False)
     else:
         train_for_stats = None
-    # We'll construct stats on rank 0 and broadcast via pickleable object
-    if rank == 0:
-        with timed_step(logger, rank, "normalize_train_test"):
-            train_norm, test_norm, stats, X_cols, target = normalize_train_test(train_for_stats.copy(), test_local.copy())
-            logger.info(f'\n{save_and_print_stats(stats)}')
-    else:
         train_norm = None
         test_norm = None
         stats = None
         X_cols = None
         target = None
-
+    
+    
+    # We'll construct stats on rank 0 and broadcast via pickleable object
     # broadcast stats, X_cols, target to all ranks
     with timed_step(logger, rank, "broadcast stats, X_cols, target to all ranks"):
         stats = comm.bcast(stats, root=0)
