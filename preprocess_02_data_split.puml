@@ -1,4 +1,4 @@
-@startuml
+@startuml namespace
 
 title  Split file by number of processes
 

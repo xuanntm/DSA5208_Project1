@@ -1,12 +1,13 @@
-@startuml
+@startuml namespace 
 
 title  MPI to divide workload 
 
 |Rank 0|
 start
-:Load dataset
+:=Config separate log for each process;
+:=Load dataset
 <color:red>(~3_493_302 records);
-:Split data to training and test
+:=Split data to training and test
 * 70% training <color:red>(~3_493_302 * 0.7 records)
 * 30% test <color:red>(~3_493_302 * 0.3 records);
 :<color:blue><b>Normalize train data
@@ -47,39 +48,44 @@ repeat
   endif
 repeat while (epoch < max_epochs)
 :Compute RMSE (train & test);
+|All Ranks|
+:MPI_Allreduce
+* sse_train_local
+* N_test_local, N_train_global
+* sse_test_local;
+|Rank 0|
+:* compute RMSE train
+* compute RMSE test;
 :Save model & history;
 stop
 
-|Rank 1..N|
-start
-:Load dataset
-<color:red>(~3_493_302 records);
-:Split data to training and test
-* 70% training <color:red>(~3_493_302 * 0.7 records)
-* 30% test <color:red>(~3_493_302 * 0.3 records);
-|All Ranks|
-:MPI_Broadcast(<b><color:red>stats</b>);
-|Rank 1..N|
-:apply normalization parameters;
-:Initialize model parameters
-* input_dim = 16
-;
-repeat
-  :Select local mini-batch;
-  :Forward pass (predict);
-  :Compute local loss + gradient;
-  if (Iter % sync_every?) then (yes)
-    |All Ranks|
-    :MPI_Allreduce (aggregate gradients);
-  endif
-  |Rank 1..N|
-  :Update model parameters (same as Rank 0);
-repeat while (epoch < max_epochs)
-:Compute RMSE contribution;
-:Stop;
-stop
+' |Rank 1..N|
+' start
+' :Load dataset
+' <color:red>(~3_493_302 records);
+' :Split data to training and test
+' * 70% training <color:red>(~3_493_302 * 0.7 records)
+' * 30% test <color:red>(~3_493_302 * 0.3 records);
+' |All Ranks|
+' :MPI_Broadcast(<b><color:red>stats</b>);
+' |Rank 1..N|
+' :apply normalization parameters;
+' :Initialize model parameters
+' * input_dim = 16
+' ;
+' repeat
+'   :Select local mini-batch;
+'   :Forward pass (predict);
+'   :Compute local loss + gradient;
+'   if (Iter % sync_every?) then (yes)
+'     |All Ranks|
+'     :MPI_Allreduce (aggregate gradients);
+'   endif
+'   |Rank 1..N|
+'   :Update model parameters (same as Rank 0);
+' repeat while (epoch < max_epochs)
+' :Compute RMSE contribution;
+' :Stop;
+' stop
 
-legend
- 
-end legend 
 @enduml

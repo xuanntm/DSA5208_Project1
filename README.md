@@ -7,24 +7,22 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 1) Cleanup, and normalize data
+## 2) Cleanup, and normalize data
 ```bash
 python 01_preprocess_data.py --input_path data/input/nytaxi2022.csv --output_path data/output/cleanup_data/nytaxi2022_cleaned.csv
 ```
 
-## 2) Split cleanup data for number of processes
+## 3) Split cleanup data for number of processes
 ```bash
 python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cleaned.csv --output-folder data/output/split_data --number-process 5
 ```
 
-## 3) MPI main function
+## 4) MPI main function
 - Allreduce = reduce + broadcast
 
-## 4) Training with MPI
+## 5) Training with MPI
 
 mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 2 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
-
-
 
 ## 5) Config for multiple computers
 

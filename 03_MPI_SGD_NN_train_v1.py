@@ -47,18 +47,6 @@ def timed_step(logger, rank, step_name):
     t1 = time.perf_counter()
     logger.info(f"[Rank {rank}] {step_name} took {t1 - t0:.4f} sec")
 
-def check_resources_mpi(comm, cpu_threshold=80.0, mem_threshold=85.0, cooldown=2):
-    cpu = psutil.cpu_percent(interval=cooldown)
-    mem = psutil.virtual_memory().percent
-    local_alert = int(cpu > cpu_threshold or mem > mem_threshold)
-
-    # share status across all ranks
-    global_alert = comm.allreduce(local_alert, op=MPI.SUM)
-
-    if global_alert > 0:
-        if comm.rank == 0:
-            print(f"❌ Resource limit exceeded. CPU={cpu:.1f}%, MEM={mem:.1f}%")
-        comm.Abort(1)  # kill all ranks
 
 # ------------------ utilities ------------------
 
@@ -208,7 +196,7 @@ def train_mpi(args):
         logger.info(f"Loading dataset from: ${args.data}")
     target='total_amount'
 
-    # each run will load there data
+    # each process will load their data
     with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
         file_by_rank = f'{args.data}/to_{size}/part_{rank}.csv'
         logger.info(f"file_by_rank: {file_by_rank}")
@@ -238,31 +226,31 @@ def train_mpi(args):
     
     # We'll construct stats on rank 0 and broadcast via pickleable object
     # broadcast stats, X_cols, target to all ranks
-    with timed_step(logger, rank, "broadcast stats, X_cols, target to all ranks"):
-        stats = comm.bcast(stats, root=0)
-        X_cols = comm.bcast(X_cols, root=0)
-        target = comm.bcast(target, root=0)
+    logger.info("broadcast stats, X_cols, target to all ranks")
+    stats = comm.bcast(stats, root=0)
+    X_cols = comm.bcast(X_cols, root=0)
+    target = comm.bcast(target, root=0)
 
     # Now apply normalization parameters to local partitions
-    with timed_step(logger, rank, "apply normalization parameters to local partitions"):
-        for c, (mean, std) in stats.items():
-            if c in train_local.columns:
-                train_local[c] = (train_local[c] - mean) / std
-            if c in test_local.columns:
-                test_local[c] = (test_local[c] - mean) / std
+    logger.info("apply normalization parameters to local partitions")
+    for c, (mean, std) in stats.items():
+        if c in train_local.columns:
+            train_local[c] = (train_local[c] - mean) / std
+        if c in test_local.columns:
+            test_local[c] = (test_local[c] - mean) / std
 
     # Prepare local arrays
-    with timed_step(logger, rank, "Prepare local arrays"):
-        X_train = train_local[X_cols].values.astype(np.float64)
-        y_train = train_local[target].values.astype(np.float64)
-        X_test = test_local[X_cols].values.astype(np.float64)
-        y_test = test_local[target].values.astype(np.float64)
+    logger.info("Prepare local arrays")
+    X_train = train_local[X_cols].values.astype(np.float64)
+    y_train = train_local[target].values.astype(np.float64)
+    X_test = test_local[X_cols].values.astype(np.float64)
+    y_test = test_local[target].values.astype(np.float64)
 
-        N_train_local = len(X_train)
-        logger.info(f'N_train_local {N_train_local}')
-        N_train_global = comm.allreduce(N_train_local, op=MPI.SUM)
-        if rank == 0:
-            logger.info(f"Global train size: {N_train_global}, local sizes: {N_train_local}")
+    N_train_local = len(X_train)
+    logger.info(f'N_train_local {N_train_local}')
+    N_train_global = comm.allreduce(N_train_local, op=MPI.SUM)
+    if rank == 0:
+        logger.info(f"Global train size: {N_train_global}, local sizes: {N_train_local}")
 
     # initialize model
     model = OneHiddenNN(input_dim=len(X_cols), hidden_dim=args.hidden, activation=args.activation, seed=args.seed + rank)
@@ -273,6 +261,7 @@ def train_mpi(args):
         t0 = time.perf_counter()
         total_iters = 0
         rng = np.random.RandomState(args.seed + rank * 13)
+        # for Multiple round training
         for epoch in range(args.epochs):
             # shuffle local indices
             perm = rng.permutation(N_train_local)
@@ -283,13 +272,6 @@ def train_mpi(args):
 
             if rank == 0:
                 logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
-            #     # safety check
-            #     if psutil.cpu_percent(interval=2) > 90:
-            #         print("⚠️ CPU too high, aborting all ranks.")
-            #         comm.Abort(1)
-            #     if psutil.virtual_memory().percent > 85:
-            #         print("⚠️ Memory too high, aborting all ranks.")
-            #         comm.Abort(1)
             for b in range(n_batches_global):
                 start = b * args.batch_size
                 end = start + args.batch_size
@@ -415,7 +397,7 @@ def parse_args():
     p.add_argument('--lr', type=float, default=0.01)
     p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
     p.add_argument('--seed', type=int, default=123)
-    p.add_argument('--sync-every', type=int, default=100)
+    p.add_argument('--sync-every', type=int, default=500)
     p.add_argument('--print-every', type=int, default=250)
     p.add_argument('--save-model', type=str, default='')
     args = p.parse_args()
@@ -437,11 +419,11 @@ if __name__ == '__main__':
         hist = train_mpi(args)
 
     # rank 0 can save history to a CSV if desired
-    # if rank == 0 and len(hist) > 0:
-    #     import csv
-    #     with open('training_history.csv', 'w', newline='') as f:
-    #         writer = csv.writer(f)
-    #         writer.writerow(['iter', 'Rtheta'])
-    #         for it, val in hist:
-    #             writer.writerow([it, val])
-    #     logger.info('Saved training_history.csv')
+    if rank == 0 and len(hist) > 0:
+        import csv
+        with open('data/output/training/sgd_training_history.csv', 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['iter', 'Rtheta'])
+            for it, val in hist:
+                writer.writerow([it, val])
+        logger.info('Saved sgd_training_history.csv')
