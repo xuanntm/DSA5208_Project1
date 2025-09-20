@@ -20,7 +20,7 @@ logger = logging.getLogger(f"rank{rank}")
 logger.setLevel(logging.INFO)
 
 # File handler (separate log file per rank)
-fh = logging.FileHandler(f"rank{rank}.log", mode="w")
+fh = logging.FileHandler(f"logs/rank{rank}.log", mode="w")
 fh.setLevel(logging.INFO)
 
 # Formatter with rank info
@@ -188,26 +188,26 @@ def normalize_train_test(train_df, test_df, target):
 
 # ------------------ training routine ------------------
 
-def train_mpi(args):
+def train_mpi(args, df):
     # Rank 0 loads the CSV path and broadcasts nothing — each rank reads the file itself to comply with dataset locality requirement
     if rank == 0:
         logger.info(f"MPI world size: {size}")
         logger.info(f"Loading dataset from: ${args.data}")
     target='total_amount'
-    with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
-        df = pd.read_csv(args.data)
-        lower = df[target].quantile(0.03)
-        upper = df[target].quantile(0.97)
-        df = df[(df[target] >= lower) & (df[target] <= upper)].copy()
-        logger.info(f'Length Global: ${len(df)}')
+    # with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
+        # df = pd.read_csv(args.data)
+        # lower = df[target].quantile(0.03)
+        # upper = df[target].quantile(0.97)
+        # df = df[(df[target] >= lower) & (df[target] <= upper)].copy()
+        # logger.info(f'Length Global: ${len(df)}')
         # number of rank = portion of data divided to each process, e.g. 1ml data row, with size = 4, each process handle 250k data
         # Each process reads the CSV and keeps rows where index % size (remainder) == rank 
-        df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
-        logger.info(f'Length Local: ${len(df_local)}')
+        # df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
+        # logger.info(f'Length Local: ${len(df_local)}')
         # logger.info(df_local.head(5))
 
     with timed_step(logger, rank, "split_for_training"):
-        train_local, test_local  = split_for_training(df_local, seed=args.seed)
+        train_local, test_local  = split_for_training(df, seed=args.seed)
         logger.info(f'Length train_local: ${len(train_local)} test_local: ${len(test_local)}')
 
     # normalize using training set global stats: compute on rank 0 and broadcast to others
@@ -395,6 +395,39 @@ def train_mpi(args):
     # return history for possible further processing
     return history
 
+
+def stream_train(args, max_chunk=6_000_000):
+    offset = 0
+    chunk_id = 0
+    
+    while True:
+        try:
+            # read next chunk
+            df = pd.read_csv(
+                args.data,
+                skiprows=range(1, offset + 1),  # skip rows already processed (+1 for header)
+                nrows=max_chunk,               # read at most max_chunk rows
+                header=0
+            )
+        except pd.errors.EmptyDataError:
+            break  # no more data
+
+        if df.empty:
+            break  # finished all data
+
+        # ===== your preprocessing & training =====
+        print(f"Chunk {chunk_id}: loaded {len(df)} rows")
+        df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
+        train_mpi(args, df_local)   # replace with your training function
+
+        # ===== advance offset =====
+        offset += len(df)
+        chunk_id += 1
+
+        # stop if fewer than max_chunk remain
+        if len(df) < max_chunk:
+            print("✅ Training finished (last chunk smaller than max_chunk)")
+            break
 # ------------------ command-line interface ------------------
 
 def parse_args():
@@ -424,14 +457,15 @@ if __name__ == '__main__':
     # run training
     # logger.info(args)
     with timed_step(logger, rank, "run training"):
-        hist = train_mpi(args)
+        stream_train(args)
+        # hist = train_mpi(args)
 
     # rank 0 can save history to a CSV if desired
-    if rank == 0 and len(hist) > 0:
-        import csv
-        with open('training_history.csv', 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['iter', 'Rtheta'])
-            for it, val in hist:
-                writer.writerow([it, val])
-        logger.info('Saved training_history.csv')
+    # if rank == 0 and len(hist) > 0:
+    #     import csv
+    #     with open('training_history.csv', 'w', newline='') as f:
+    #         writer = csv.writer(f)
+    #         writer.writerow(['iter', 'Rtheta'])
+    #         for it, val in hist:
+    #             writer.writerow([it, val])
+    #     logger.info('Saved training_history.csv')

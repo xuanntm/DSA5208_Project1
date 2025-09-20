@@ -1,5 +1,5 @@
 # DSA5208_Project1
-
+![alt text](preprocess_flow.png)
 python -m venv venv
 
 source venv/bin/activate
@@ -81,6 +81,7 @@ export MY_PYTHON=/Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/b
 
 
 ### Working
+2025-09-19 18:59:22,288 - INFO - [Rank 0] ========Training Loop===== took 73.4590 sec
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/cleaned_data_10_000_000.csv --epochs 5 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
 
 
