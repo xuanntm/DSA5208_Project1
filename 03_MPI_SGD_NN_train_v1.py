@@ -47,6 +47,19 @@ def timed_step(logger, rank, step_name):
     t1 = time.perf_counter()
     logger.info(f"[Rank {rank}] {step_name} took {t1 - t0:.4f} sec")
 
+def check_resources_mpi(comm, cpu_threshold=80.0, mem_threshold=85.0, cooldown=2):
+    cpu = psutil.cpu_percent(interval=cooldown)
+    mem = psutil.virtual_memory().percent
+    local_alert = int(cpu > cpu_threshold or mem > mem_threshold)
+
+    # share status across all ranks
+    global_alert = comm.allreduce(local_alert, op=MPI.SUM)
+
+    if global_alert > 0:
+        if comm.rank == 0:
+            print(f"❌ Resource limit exceeded. CPU={cpu:.1f}%, MEM={mem:.1f}%")
+        comm.Abort(1)  # kill all ranks
+
 # ------------------ utilities ------------------
 
 def relu(x):
@@ -188,23 +201,18 @@ def normalize_train_test(train_df, test_df, target):
 
 # ------------------ training routine ------------------
 
-def train_mpi(args, df):
+def train_mpi(args):
     # Rank 0 loads the CSV path and broadcasts nothing — each rank reads the file itself to comply with dataset locality requirement
     if rank == 0:
         logger.info(f"MPI world size: {size}")
         logger.info(f"Loading dataset from: ${args.data}")
     target='total_amount'
-    # with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
-        # df = pd.read_csv(args.data)
-        # lower = df[target].quantile(0.03)
-        # upper = df[target].quantile(0.97)
-        # df = df[(df[target] >= lower) & (df[target] <= upper)].copy()
-        # logger.info(f'Length Global: ${len(df)}')
-        # number of rank = portion of data divided to each process, e.g. 1ml data row, with size = 4, each process handle 250k data
-        # Each process reads the CSV and keeps rows where index % size (remainder) == rank 
-        # df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
-        # logger.info(f'Length Local: ${len(df_local)}')
-        # logger.info(df_local.head(5))
+
+    # each run will load there data
+    with timed_step(logger, rank, "reads the CSV and keeps rows by rank"):
+        file_by_rank = f'{args.data}/to_{size}/part_{rank}.csv'
+        logger.info(f"file_by_rank: {file_by_rank}")
+        df = pd.read_csv(file_by_rank)
 
     with timed_step(logger, rank, "split_for_training"):
         train_local, test_local  = split_for_training(df, seed=args.seed)
@@ -265,7 +273,6 @@ def train_mpi(args, df):
         t0 = time.perf_counter()
         total_iters = 0
         rng = np.random.RandomState(args.seed + rank * 13)
-        sync_every = 20  # only sync every 10 batches
         for epoch in range(args.epochs):
             # shuffle local indices
             perm = rng.permutation(N_train_local)
@@ -276,13 +283,13 @@ def train_mpi(args, df):
 
             if rank == 0:
                 logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
-                # safety check
-                if psutil.cpu_percent(interval=2) > 90:
-                    print("⚠️ CPU too high, aborting all ranks.")
-                    comm.Abort(1)
-                if psutil.virtual_memory().percent > 85:
-                    print("⚠️ Memory too high, aborting all ranks.")
-                    comm.Abort(1)
+            #     # safety check
+            #     if psutil.cpu_percent(interval=2) > 90:
+            #         print("⚠️ CPU too high, aborting all ranks.")
+            #         comm.Abort(1)
+            #     if psutil.virtual_memory().percent > 85:
+            #         print("⚠️ Memory too high, aborting all ranks.")
+            #         comm.Abort(1)
             for b in range(n_batches_global):
                 start = b * args.batch_size
                 end = start + args.batch_size
@@ -310,8 +317,7 @@ def train_mpi(args, df):
                 # weighted gradient aggregation (important!)
                 weighted_grad = grad_vec * B_local
                 total_weighted_grad = np.zeros_like(weighted_grad)
-
-                if total_iters % sync_every == 0:
+                if total_iters % args.sync_every == 0:
                     # with timed_step(logger, rank, "Allreduce weighted gradient"):
                     comm.Allreduce(weighted_grad, total_weighted_grad, op=MPI.SUM)
                 
@@ -398,39 +404,6 @@ def train_mpi(args, df):
     # return history for possible further processing
     return history
 
-
-def stream_train(args, max_chunk=6_000_000):
-    offset = 0
-    chunk_id = 0
-    
-    while True:
-        try:
-            # read next chunk
-            df = pd.read_csv(
-                args.data,
-                skiprows=range(1, offset + 1),  # skip rows already processed (+1 for header)
-                nrows=max_chunk,               # read at most max_chunk rows
-                header=0
-            )
-        except pd.errors.EmptyDataError:
-            break  # no more data
-
-        if df.empty:
-            break  # finished all data
-
-        # ===== your preprocessing & training =====
-        print(f"Chunk {chunk_id}: loaded {len(df)} rows")
-        df_local = df.iloc[np.where((np.arange(len(df)) % size) == rank)[0]].reset_index(drop=True)
-        train_mpi(args, df_local)   # replace with your training function
-
-        # ===== advance offset =====
-        offset += len(df)
-        chunk_id += 1
-
-        # stop if fewer than max_chunk remain
-        if len(df) < max_chunk:
-            print("✅ Training finished (last chunk smaller than max_chunk)")
-            break
 # ------------------ command-line interface ------------------
 
 def parse_args():
@@ -442,6 +415,7 @@ def parse_args():
     p.add_argument('--lr', type=float, default=0.01)
     p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
     p.add_argument('--seed', type=int, default=123)
+    p.add_argument('--sync-every', type=int, default=100)
     p.add_argument('--print-every', type=int, default=250)
     p.add_argument('--save-model', type=str, default='')
     args = p.parse_args()
@@ -460,8 +434,7 @@ if __name__ == '__main__':
     # run training
     # logger.info(args)
     with timed_step(logger, rank, "run training"):
-        stream_train(args)
-        # hist = train_mpi(args)
+        hist = train_mpi(args)
 
     # rank 0 can save history to a CSV if desired
     # if rank == 0 and len(hist) > 0:

@@ -73,4 +73,5 @@ energy_esg_adapted_model/
 checkpoints/
 
 sample_data/
+data/
 tmp/

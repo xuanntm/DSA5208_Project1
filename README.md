@@ -1,37 +1,32 @@
 # DSA5208_Project1
-![alt text](preprocess_flow.png)
+
+## 1) Create environment
+```bash
 python -m venv venv
-
 source venv/bin/activate
-
 pip install -r requirements.txt
+```
+
+## 1) Cleanup, and normalize data
+```bash
+python 01_preprocess_data.py --input_path data/input/nytaxi2022.csv --output_path data/output/cleanup_data/nytaxi2022_cleaned.csv
+```
+
+## 2) Split cleanup data for number of processes
+```bash
+python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cleaned.csv --output-folder data/output/split_data --number-process 5
+```
+
+## 3) MPI main function
+- Allreduce = reduce + broadcast
+
+## 4) Training with MPI
+
+mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 2 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
 
 
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.01 --activation relu
 
-## good result (Best)
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_100000.csv --epochs 5 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
-
-
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_100000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.01 --activation relu
-## learn slower -> have same result
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_100000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
-
-mpiexec -n 4 python main.py --data sample_data/nytaxi2022_100000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
-
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
-
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.csv --epochs 30 --batch-size 128 --hidden 64 --lr 0.001 --activation relu
-
-
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_1000000.csv --epochs 10 --batch-size 512 --hidden 128 --lr 0.005 --activation relu
-
-### Make OS down !!!!!
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022.csv --epochs 10 --batch-size 512 --hidden 128 --lr 0.001 --activation relu
-
-
-### 5000000 Slow
-mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/nytaxi2022_5000000.csv --epochs 30 --batch-size 256 --hidden 64 --lr 0.002 --activation relu
+## 5) Config for multiple computers
 
 
 ### Good running with 5_000_000 rows ========Training Loop===== took 51.1316 sec

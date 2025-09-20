@@ -4,18 +4,24 @@ title  Preprocess Data Flow
 
 start
 :=1.Load Data set 
+<color:red>(39_656_098 records)
 * for required features and target columns
 * the script make after analyze on the data set
 * supported tools and framework: pandas, spark, notebook;
-:=2.drop row with na value;
+:=2.drop row with na value
+<color:red>(38_287_795 records);
 :=3.Filtering extra
-|_ > 0;
+|_ > 0
+<color:red>(38_167_921 records);
 :=4.Filtering trip_distance
-|_ 0.1 -> 100 miles;
+|_ 0.1 -> 100 miles
+<color:red>(37_533_859 records);
 :=5.Filtering trips duration
-|_ 2 -> 300 minutes;
+|_ 2 -> 300 minutes
+<color:red>(37_159_868 records);
 :=6.Filtering extreme fares
-|_ 3% -> 97%;
+|_ 3% -> 97%
+<color:red>(34_933_022 records);
 
 :=7.Group demand by pickup hour
 |_ low, normal, high;
@@ -35,7 +41,8 @@ start
 :=12.Computing DOLocationID rank
 |_ 1 -> 10;
 
-:=13.Drop temporary columns and save;
+:=13.Drop temporary columns and save
+<color:red>(34_933_022 records);
 stop
 
 @enduml

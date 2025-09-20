@@ -1,0 +1,14 @@
+@startuml
+
+title  Split file by number of processes
+
+start
+:=1.Load Data set
+<color:red>(34_933_022 records);
+:=2.Split to msall file and save for each process
+for example 10 process
+<color:red>(~3_493_302 records);
+:=3.Copy these files to each computer;
+stop
+
+@enduml
