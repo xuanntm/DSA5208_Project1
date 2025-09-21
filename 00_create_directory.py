@@ -2,7 +2,7 @@ import os
 
 def create_project_folders(base="data"):
     structure = [
-        os.path.join(base, "logs"),
+        os.path.join("logs"),
         os.path.join(base, "input"),
         os.path.join(base, "output", "cleanup_data"),
         os.path.join(base, "output", "model"),
