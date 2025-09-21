@@ -7,6 +7,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## 2) Create data folder structure
+```bash
+python 00_create_directory.py
+```
+
 ## 2) Cleanup, and normalize data
 ```bash
 python 01_preprocess_data.py --input_path data/input/nytaxi2022.csv --output_path data/output/cleanup_data/nytaxi2022_cleaned.csv
