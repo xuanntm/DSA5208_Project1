@@ -23,6 +23,7 @@ python 00_create_directory.py
 ├── 03_MPI_SGD_NN_train_v1.py
 ├── requirements.txt
 ├── logs/
+├── docs/
 ├── data/
 │   ├── input/
 │   │   ├── nytaxi2022.csv
