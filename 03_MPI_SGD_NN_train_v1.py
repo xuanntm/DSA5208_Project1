@@ -5,7 +5,7 @@ import pandas as pd
 from mpi4py import MPI
 import logging
 from contextlib import contextmanager
-import psutil
+from datetime import datetime
 
 
 # ------------------ Init MPI ------------------
@@ -39,6 +39,11 @@ if rank == 0:
     sh.setLevel(logging.INFO)
     sh.setFormatter(formatter)
     logger.addHandler(sh)
+
+# Open a shared file for logging
+# mode = MPI.MODE_WRONLY | MPI.MODE_CREATE
+# fh = MPI.File.Open(comm, "shared_logfile.log", mode)
+# fh.Set_atomicity(True) # Ensure atomic writes
 
 @contextmanager
 def timed_step(logger, rank, step_name):
@@ -91,12 +96,12 @@ class OneHiddenNN:
     def __init__(self, input_dim, hidden_dim, activation='relu', seed=1234):
         rng = np.random.RandomState(seed)
         # Xavier init for hidden weights
-        # self.W1 = rng.randn(hidden_dim, input_dim) * np.sqrt(2.0 / max(1, input_dim))
-        self.W1 = rng.randn(hidden_dim, input_dim) * np.sqrt(2.0 / max(1, input_dim)) * 0.1
+        self.W1 = rng.randn(hidden_dim, input_dim) * np.sqrt(2.0 / max(1, input_dim))
+        # self.W1 = rng.randn(hidden_dim, input_dim) * np.sqrt(2.0 / max(1, input_dim)) * 0.1
         self.b1 = np.zeros((hidden_dim,))
         # output layer weights
-        # self.W2 = rng.randn(hidden_dim) * np.sqrt(2.0 / max(1, hidden_dim))
-        self.W2 = rng.randn(hidden_dim) * np.sqrt(2.0 / max(1, hidden_dim)) * 0.1
+        self.W2 = rng.randn(hidden_dim) * np.sqrt(2.0 / max(1, hidden_dim))
+        # self.W2 = rng.randn(hidden_dim) * np.sqrt(2.0 / max(1, hidden_dim)) * 0.1
         self.b2 = 0.0
         self.act_name = activation
         self.act, self.act_grad = ACTIVATIONS[activation]
@@ -149,7 +154,7 @@ class OneHiddenNN:
         self.set_params_vector(params)
 
 # ------------------ neural network ------------------
-def save_and_print_stats(stats, filename="stats.csv"):
+def save_and_print_stats(stats, filename="data/output/training/stats.csv"):
     rows = []
     for col, (mean, std) in stats.items():
         if col == "__target__":
@@ -213,8 +218,7 @@ def train_mpi(args):
         train_for_stats = train_local.copy()
         with timed_step(logger, rank, "normalize_train_test"):
             train_norm, test_norm, stats, X_cols = normalize_train_test(train_for_stats.copy(), test_local.copy(), target)
-            logger.info(f'\n{save_and_print_stats(stats)}')
-        # train_for_stats.to_csv("sample_data/train_for_stats.csv", index=False)
+            # logger.info(f'\n{save_and_print_stats(stats)}')
     else:
         train_for_stats = None
         train_norm = None
@@ -330,7 +334,7 @@ def train_mpi(args):
                     history.append((total_iters, Rtheta))
 
                     # if rank == 0:
-                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}, R_local(θ)={local_sse:.6f}")
+                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
 
     # compute final RMSE on train and test in parallel
     # local contributions
@@ -358,6 +362,7 @@ def train_mpi(args):
         # rank 0 prints results
         if rank == 0:
             logger.info("\nTraining finished")
+            logger.info(f"{args}")
             logger.info(f"Epochs: {args.epochs}, total iters: {total_iters}")
             logger.info(f"Training time (s): {train_time:.3f}")
             logger.info(f"RMSE train: {rmse_train:.6f}")
@@ -365,7 +370,7 @@ def train_mpi(args):
             # optionally save model
             if args.save_model:
                 params = model.get_params_vector()
-                np.savez(args.save_model, params=params, X_cols=X_cols, stats=stats)
+                np.savez(f"{args.save_model}{datetime.now().strftime('%Y%m%d_%H%M%S')}.npz", params=params, X_cols=X_cols, stats=stats, args=args)
                 logger.info(f"Saved model to {args.save_model}")
 
     # collect a small sample from the global test set
@@ -391,15 +396,15 @@ def train_mpi(args):
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--data', type=str, required=True, help='Path to nytaxi2022.csv')
-    p.add_argument('--epochs', type=int, default=10)
-    p.add_argument('--batch-size', type=int, default=64)
-    p.add_argument('--hidden', type=int, default=32)
-    p.add_argument('--lr', type=float, default=0.01)
+    p.add_argument('--epochs', type=int, default=1)
+    p.add_argument('--batch-size', type=int, default=1024)
+    p.add_argument('--hidden', type=int, default=64)
+    p.add_argument('--lr', type=float, default=0.002)
     p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
     p.add_argument('--seed', type=int, default=123)
     p.add_argument('--sync-every', type=int, default=500)
     p.add_argument('--print-every', type=int, default=250)
-    p.add_argument('--save-model', type=str, default='')
+    p.add_argument('--save-model', type=str, default='data/output/model/')
     args = p.parse_args()
     return args
 
@@ -421,9 +426,9 @@ if __name__ == '__main__':
     # rank 0 can save history to a CSV if desired
     if rank == 0 and len(hist) > 0:
         import csv
-        with open('data/output/training/sgd_training_history.csv', 'w', newline='') as f:
+        with open(f"data/output/training/history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['iter', 'Rtheta'])
             for it, val in hist:
                 writer.writerow([it, val])
-        logger.info('Saved sgd_training_history.csv')
+        logger.info('Saved training history.csv')

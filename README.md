@@ -20,11 +20,23 @@ python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cl
 ## 4) MPI main function
 - Allreduce = reduce + broadcast
 
-## 5) Training with MPI
+## 5) Training with MPI on single compute
 
-mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 2 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+
+mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data
+
 
 ## 5) Config for multiple computers
+```text
+- enable remote access on second compute
+- try to connect from first computer to second compute
+ssh XuanNguyen@192.168.1.9 # UserName and local IP (wifi) ??? LAN network
+```
+
+mpiexec -host 192.168.1.4:3 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
+        -host XuanNguyen@192.168.1.8:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data
+
 
 
 ### Good running with 5_000_000 rows ========Training Loop===== took 51.1316 sec
@@ -79,3 +91,9 @@ mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/cleaned_data_10_000_0
 
 
 mpiexec -n 4 python MPI_SGD_NN_train.py --data sample_data/cleaned_data_v4.csv --epochs 5 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+
+
+
+scp /path/to/local/file.txt username@remote_host:/path/to/remote/directory/
+
+
