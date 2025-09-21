@@ -59,15 +59,19 @@ python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cl
 ```
 
 ## 5) install MPI for macbook
-```
+```bash
 brew install open-mpi
 ```
 
 ## 6) Training with MPI on single computer
-
-> mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data 
-> mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
-
+> Run with default parameters
+```bash
+mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data
+```
+> Run with custom parameters
+```bash
+mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+```
 
 ## 7) Config for multiple computers
 ```text
@@ -82,7 +86,10 @@ for example: scp -r data/output/split_data/to_20/ username@remote_host:{PROJECT_
 ```
 
 ## 8) Training with MPI on multiple computers
-mpiexec -host 192.168.1.4:3 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
-        -host XuanNguyen@192.168.1.8:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data
-
+> you have to run the split data script base on  
+> Total = N_FIRST + N_SECOND
+```bash
+mpiexec -host {{LOCAL_IP}}:{{N_FIRST}} venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
+        -host XuanNguyen@{{REMOTE_IP}}:{{N_SECOND}} {{PROJECT_DIRECTORY}}/venv/bin/python {{PROJECT_DIRECTORY}}/03_MPI_SGD_NN_train_v1.py --data {{PROJECT_DIRECTORY}}/data/output/split_data
+```
 
