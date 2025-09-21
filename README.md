@@ -12,7 +12,41 @@ pip install -r requirements.txt
 python 00_create_directory.py
 ```
 
-> Recommend to keep raw data in data/input/ folder
+> Recommend to keep raw data in data/input/ folder  
+> This is the suggested structure
+```
+.
+├── README.md
+├── 00_create_directory.py
+├── 01_preprocess_data.py
+├── 02_data_split.py
+├── 03_MPI_SGD_NN_train_v1.py
+├── requirements.txt
+├── logs/
+├── data/
+│   ├── input/
+│   │   ├── nytaxi2022.csv
+│   └── output/
+│       ├── cleanup_data/
+│       │   └── nytaxi2022_cleaned.csv
+│       ├── model/
+│       │   └── 20250921_092524.npz
+│       ├── split_data/
+│       │    ├── to_[N:number of processes]
+│       │        └── part_[i:0-> N-1].csv
+│       ├── training/
+│           └── history_YYYYMMDD_HHMMSS.csv
+```
+
+## 📝 Notes
+- `data/input/` → Put your raw CSV file here.  
+- `data/output/cleanup_data/` → Stores cleaned and standardized datasets.    
+- `data/output/split_data/` → Holds split datasets by the number of process. 
+- `data/output/model/` → Contains trained models result.
+- `data/output/training/` → Contains trained history result.
+
+This structure helps keep raw data separate from processed outputs and models, making the workflow cleaner and reproducible.
+
 
 ## 3) Cleanup, and normalize data
 ```bash
