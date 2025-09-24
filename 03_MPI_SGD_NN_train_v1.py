@@ -269,72 +269,54 @@ def train_mpi(args):
         for epoch in range(args.epochs):
             # shuffle local indices
             perm = rng.permutation(N_train_local)
-
-            # compute local and global batch counts
-            n_batches_local = int(np.ceil(N_train_local / args.batch_size))
-            n_batches_global = comm.allreduce(n_batches_local, op=MPI.MAX)
-
             if rank == 0:
-                logger.info(f"========== Epoch {epoch} START (max {n_batches_global} batches)")
-            for b in range(n_batches_global):
-                start = b * args.batch_size
+                logger.info(f"========== Epoch {epoch} START")
+
+            # ---- local training (no communication here) ----
+            for start in range(0, N_train_local, args.batch_size):
                 end = start + args.batch_size
+                batch_idx = perm[start:end]
+                if len(batch_idx) == 0:
+                    continue
 
-                if start < N_train_local:
-                    # real batch
-                    batch_idx = perm[start:end]
-                    Xb, yb = X_train[batch_idx], y_train[batch_idx]
+                Xb, yb = X_train[batch_idx], y_train[batch_idx]
 
-                    # forward
-                    ypred, cache = model.forward(Xb)
+                # forward
+                ypred, cache = model.forward(Xb)
 
-                    # compute local loss and grad w.r.t outputs
-                    local_loss, grad_out = mse_loss_and_grad(ypred, yb)
+                # compute local loss and grad w.r.t outputs
+                local_loss, grad_out = mse_loss_and_grad(ypred, yb)
 
-                    # compute grads w.r.t params
-                    grads = model.backward(cache, grad_out)
-                    grad_vec = model.get_grad_vector(grads)
-                    B_local = Xb.shape[0]
-                else:
-                    # dummy batch → contribute zeros
-                    grad_vec = np.zeros_like(model.get_params_vector())
-                    B_local = 0
+                # compute grads w.r.t params
+                grads = model.backward(cache, grad_out)
+                grad_vec = model.get_grad_vector(grads)
 
-                # weighted gradient aggregation (important!)
-                weighted_grad = grad_vec * B_local
-                total_weighted_grad = np.zeros_like(weighted_grad)
-                if total_iters % args.sync_every == 0:
-                    # with timed_step(logger, rank, "Allreduce weighted gradient"):
-                    comm.Allreduce(weighted_grad, total_weighted_grad, op=MPI.SUM)
-                
-                # total batch size across all ranks
-                global_B = comm.allreduce(B_local, op=MPI.SUM)
-
-                if global_B > 0:
-                    total_grad = total_weighted_grad / float(global_B)
-                    # apply update
-                    model.apply_update_from_vector(total_grad, args.lr)
+                # local update only (no MPI yet)
+                model.apply_update_from_vector(grad_vec, args.lr)
 
                 total_iters += 1
 
-                # optionally compute global loss every print_every iters
-                if total_iters % args.print_every == 0:
-                    # local SSE on this rank
-                    if N_train_local > 0:
-                        ypred_full_local, _ = model.forward(X_train)
-                        local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
-                    else:
-                        local_sse = 0.0
+            # ---- synchronize model parameters at end of epoch ----
+            param_vec = model.get_params_vector()
+            avg_param = np.zeros_like(param_vec)
+            comm.Allreduce(param_vec, avg_param, op=MPI.SUM)
+            avg_param /= size
+            model.set_params_vector(avg_param)
 
-                    # reduce to get global loss
-                    global_sse = comm.allreduce(local_sse, op=MPI.SUM)
+            # ---- optionally compute global loss after sync ----
+            if N_train_local > 0:
+                ypred_full_local, _ = model.forward(X_train)
+                local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
+            else:
+                local_sse = 0.0
 
-                    # average loss per sample
-                    Rtheta = global_sse / N_train_global
-                    history.append((total_iters, Rtheta))
+            global_sse = comm.allreduce(local_sse, op=MPI.SUM)
+            Rtheta = global_sse / N_train_global
+            history.append((total_iters, Rtheta))
 
-                    # if rank == 0:
-                    logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
+            if rank == 0:
+                logger.info(f"Epoch {epoch} END, R(θ)={Rtheta:.6f}")
+
 
     # compute final RMSE on train and test in parallel
     # local contributions
