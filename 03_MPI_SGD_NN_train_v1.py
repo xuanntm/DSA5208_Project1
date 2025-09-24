@@ -267,13 +267,12 @@ def train_mpi(args):
         rng = np.random.RandomState(args.seed + rank * 13)
         # for Multiple round training
         for epoch in range(args.epochs):
-            # shuffle local indices
             perm = rng.permutation(N_train_local)
+
             if rank == 0:
                 logger.info(f"========== Epoch {epoch} START")
 
-            # ---- local training (no communication here) ----
-            for start in range(0, N_train_local, args.batch_size):
+            for b, start in enumerate(range(0, N_train_local, args.batch_size)):
                 end = start + args.batch_size
                 batch_idx = perm[start:end]
                 if len(batch_idx) == 0:
@@ -291,19 +290,28 @@ def train_mpi(args):
                 grads = model.backward(cache, grad_out)
                 grad_vec = model.get_grad_vector(grads)
 
-                # local update only (no MPI yet)
+                # apply local update
                 model.apply_update_from_vector(grad_vec, args.lr)
 
                 total_iters += 1
 
-            # ---- synchronize model parameters at end of epoch ----
-            param_vec = model.get_params_vector()
-            avg_param = np.zeros_like(param_vec)
-            comm.Allreduce(param_vec, avg_param, op=MPI.SUM)
-            avg_param /= size
-            model.set_params_vector(avg_param)
+                # 🔹 Hybrid sync: every K batches
+                if args.sync_every > 0 and (b + 1) % args.sync_every == 0:
+                    param_vec = model.get_params_vector()
+                    avg_param = np.zeros_like(param_vec)
+                    comm.Allreduce(param_vec, avg_param, op=MPI.SUM)
+                    avg_param /= size
+                    model.set_params_vector(avg_param)
 
-            # ---- optionally compute global loss after sync ----
+            # 🔹 Epoch-end sync (only if sync_every == 0)
+            if args.sync_every == 0:
+                param_vec = model.get_params_vector()
+                avg_param = np.zeros_like(param_vec)
+                comm.Allreduce(param_vec, avg_param, op=MPI.SUM)
+                avg_param /= size
+                model.set_params_vector(avg_param)
+
+            # ---- compute global loss after epoch sync ----
             if N_train_local > 0:
                 ypred_full_local, _ = model.forward(X_train)
                 local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
@@ -384,7 +392,7 @@ def parse_args():
     p.add_argument('--lr', type=float, default=0.002)
     p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
     p.add_argument('--seed', type=int, default=123)
-    p.add_argument('--sync-every', type=int, default=500)
+    p.add_argument('--sync-every', type=int, default=0)
     p.add_argument('--print-every', type=int, default=250)
     p.add_argument('--save-model', type=str, default='data/output/model/')
     args = p.parse_args()

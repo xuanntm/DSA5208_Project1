@@ -71,8 +71,13 @@ mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data
 ```
 > Run with custom parameters
 ```bash
-mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 10 --batch-size 1024 --hidden 64 --lr 0.002 --activation relu
+mpiexec -n 3 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 1 --batch-size 512 --hidden 64 --lr 0.002 --activation relu
 ```
+```
+Case 1: --sync-every 0 → only sync at end of epoch.
+Case 2: --sync-every 100 → do 100 local updates, then sync parameters.
+```
+
 
 ## 7) Config for multiple computers
 ```text
