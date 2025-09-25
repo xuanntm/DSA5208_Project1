@@ -56,10 +56,10 @@ if __name__ == "__main__":
 
     # -------- Step 6: Filter extreme fares (keep 3%–97%)--------
     #lower = df[target_col].quantile(0.03)
-    #upper = df[target_col].quantile(0.97)
-    #df = df[(df[target_col] >= lower) & (df[target_col] <= upper)]
-    #log_data_frame_length(df)
-    #log_time(" 6. Final Filter extreme fares")
+    upper = df[target_col].quantile(0.999)
+    df = df[(df[target_col] > 0) & (df[target_col] <= upper)]
+    log_data_frame_length(df)
+    log_time(" 6. Final Filter extreme fares")
 
     # -------- Step 7: Bucket demand group  --------
     # Extract pickup hour

@@ -303,6 +303,32 @@ def train_mpi(args):
                     avg_param /= size
                     model.set_params_vector(avg_param)
 
+                # 🔹 Print R(θ) every N batches (default 100)
+                # if total_iters % args.print_every == 0:
+                #     if N_train_local > 0:
+                #         ypred_full_local, _ = model.forward(X_train)
+                #         local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
+                #     else:
+                #         local_sse = 0.0
+
+                #     global_sse = comm.allreduce(local_sse, op=MPI.SUM)
+                #     Rtheta = global_sse / N_train_global
+                #     history.append((total_iters, Rtheta))
+
+                #     if rank == 0:
+                #         logger.info(f"Iter {total_iters:6d}, epoch {epoch}, R(θ)={Rtheta:.6f}")
+                
+                
+                # 🔹 Print *local* R(θ) every N batches
+                if total_iters % args.print_every == 0:
+                    if N_train_local > 0:
+                        ypred_full_local, _ = model.forward(X_train)
+                        local_sse = np.sum((ypred_full_local - y_train) ** 2) * 0.5
+                        Rtheta_local = local_sse / N_train_local
+                        logger.info(f"[Rank {rank}] Iter {total_iters:6d}, epoch {epoch}, "
+                                    f"local R(θ)={Rtheta_local:.6f}")
+
+
             # 🔹 Epoch-end sync (only if sync_every == 0)
             if args.sync_every == 0:
                 param_vec = model.get_params_vector()
