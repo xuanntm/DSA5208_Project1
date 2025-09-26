@@ -419,7 +419,7 @@ def parse_args():
     p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
     p.add_argument('--seed', type=int, default=123)
     p.add_argument('--sync-every', type=int, default=0)
-    p.add_argument('--print-every', type=int, default=250)
+    p.add_argument('--print-every', type=int, default=2500)
     p.add_argument('--save-model', type=str, default='data/output/model/')
     args = p.parse_args()
     return args
