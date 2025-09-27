@@ -1,0 +1,56 @@
+2025-09-26 01:40:42,579 - INFO - MPI world size: 8
+2025-09-26 01:40:42,579 - INFO - Loading dataset from: $data/output/split_data
+2025-09-26 01:40:42,579 - INFO - file_by_rank: data/output/split_data/to_8/part_0.csv
+2025-09-26 01:40:44,837 - INFO - [Rank 0] reads the CSV and keeps rows by rank took 2.2581 sec
+2025-09-26 01:40:45,587 - INFO - Length train_local: $3240444 test_local: $1388762
+2025-09-26 01:40:45,587 - INFO - [Rank 0] split_for_training took 0.7500 sec
+2025-09-26 01:40:46,057 - INFO - [Rank 0] normalize_train_test took 0.4090 sec
+2025-09-26 01:40:46,057 - INFO - broadcast stats, X_cols, target to all ranks
+2025-09-26 01:40:47,050 - INFO - apply normalization parameters to local partitions
+2025-09-26 01:40:47,353 - INFO - Prepare local arrays
+2025-09-26 01:40:47,683 - INFO - N_train_local 3240444
+2025-09-26 01:40:48,451 - INFO - Global train size: 25923545, local sizes: 3240444
+2025-09-26 01:40:48,527 - INFO - ========== Epoch 0 START
+2025-09-26 01:40:54,180 - INFO - [Rank 0] Iter    310, epoch 0, local R(θ)=14.369267
+2025-09-26 01:41:07,303 - INFO - [Rank 0] Iter    620, epoch 0, local R(θ)=9.300999
+2025-09-26 01:41:19,804 - INFO - [Rank 0] Iter    930, epoch 0, local R(θ)=8.414930
+2025-09-26 01:41:32,000 - INFO - [Rank 0] Iter   1240, epoch 0, local R(θ)=7.973158
+2025-09-26 01:41:40,634 - INFO - [Rank 0] Iter   1550, epoch 0, local R(θ)=7.690742
+2025-09-26 01:41:49,914 - INFO - [Rank 0] Iter   1860, epoch 0, local R(θ)=7.490883
+2025-09-26 01:41:58,086 - INFO - [Rank 0] Iter   2170, epoch 0, local R(θ)=7.342370
+2025-09-26 01:42:06,144 - INFO - [Rank 0] Iter   2480, epoch 0, local R(θ)=7.226897
+2025-09-26 01:42:13,711 - INFO - [Rank 0] Iter   2790, epoch 0, local R(θ)=7.137718
+2025-09-26 01:42:15,524 - INFO - [Rank 0] Iter   3100, epoch 0, local R(θ)=7.059811
+2025-09-26 01:42:25,367 - INFO - Epoch 0 END, R(θ)=161.811478
+2025-09-26 01:42:25,369 - INFO - [Rank 0] ========Training Loop===== took 96.9161 sec
+2025-09-26 01:42:39,512 - INFO - 
+Training finished
+2025-09-26 01:42:39,515 - INFO - Namespace(data='data/output/split_data', epochs=1, batch_size=1024, hidden=64, lr=0.002, activation='tanh', seed=123, sync_every=0, print_every=310, save_model='data/output/model/')
+2025-09-26 01:42:39,515 - INFO - Epochs: 1, total iters: 3165
+2025-09-26 01:42:39,515 - INFO - Training time (s): 96.918
+2025-09-26 01:42:39,515 - INFO - RMSE train: 17.989523
+2025-09-26 01:42:39,515 - INFO - RMSE test:  17.987865
+2025-09-26 01:42:39,586 - INFO - Saved model to data/output/model/
+2025-09-26 01:42:39,586 - INFO - [Rank 0] compute final RMSE on train and test in parallel took 14.2156 sec
+2025-09-26 01:42:39,613 - INFO - 
+Sample test predictions:
+2025-09-26 01:42:39,619 - INFO - Features: [ 0.33675675 -0.047931    0.95787755  1.44044522 -0.43222795 -1.03536767
+ -1.6781407  -0.4258944   2.86635465  0.22209333  1.6781407   0.50613722
+ -0.49910154 -0.06728904  0.48432981 -0.44977276]
+2025-09-26 01:42:39,619 - INFO -  Predicted total_amount: 8.52
+2025-09-26 01:42:39,619 - INFO -  Actual total_amount:    31.56
+
+2025-09-26 01:42:39,619 - INFO - Features: [-0.34680691 -0.83493607 -0.40495913  1.44044522 -0.43222795 -1.03536767
+  0.59589741 -0.4258944  -0.34887507  0.22209333 -0.59589741  0.50613722
+ -0.49910154 -0.06728904 -1.32605002  0.53209603]
+2025-09-26 01:42:39,619 - INFO -  Predicted total_amount: 6.84
+2025-09-26 01:42:39,619 - INFO -  Actual total_amount:    13.30
+
+2025-09-26 01:42:39,620 - INFO - Features: [-0.4064467  -0.83493607 -0.59316674  1.44044522 -0.43222795 -1.03536767
+  0.59589741 -0.4258944  -0.34887507  0.22209333 -0.59589741  0.50613722
+ -0.49910154 -0.06728904  0.48432981 -0.44977276]
+2025-09-26 01:42:39,620 - INFO -  Predicted total_amount: 6.44
+2025-09-26 01:42:39,620 - INFO -  Actual total_amount:    13.56
+
+2025-09-26 01:42:39,794 - INFO - [Rank 0] run training took 117.2133 sec
+2025-09-26 01:42:39,796 - INFO - Saved training history.csv

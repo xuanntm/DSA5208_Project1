@@ -10,39 +10,30 @@ start
 * supported tools and framework: pandas, spark, notebook;
 :=2.drop row with na value
 <color:red>(38_287_795 records);
-:=3.Filtering extra
-|_ > 0
+:=3.Filtering extra (> 0)
 <color:red>(38_167_921 records);
-:=4.Filtering trip_distance
-|_ 0.1 -> 100 miles
+:=4.Filtering trip_distance (0.1 -> 100 miles)
 <color:red>(37_533_859 records);
-:=5.Filtering trips duration
-|_ 2 -> 300 minutes
+:=5.Filtering trips duration (2 -> 300 minutes)
 <color:red>(37_159_868 records);
-:=6.Filtering extreme fares
-|_ 3% -> 97%
-<color:red>(34_933_022 records);
 
-:=7.Group demand by pickup hour
-|_ low, normal, high;
+:=6.Filtering Total_fare_amount to remove outliners
+|_ less than 0.  and   99.99%
+<color:red>(37_033_641 records);
 
-:=8.group passenger count
-|_ single, double, other;
+:=7.Group 
+demand by pickup hour (low, normal, high)
+group passenger count (single, double, other)
+group RatecodeID (1, other)
+group payment_type (1, 2, other);
 
-:=9.group RatecodeID
-|_ 1, other ;
+:=8.Computing 
+PULocationID rank (1 -> 10)
+DOLocationID rank (1 -> 10);
 
-:=10.group payment_type
-|_ 1, 2, other ;
+:=9.Drop temporary columns and save as new dataset: nytaxi2022_cleaned.csv
+<color:red>(37_033_641 records);
 
-:=11.Computing PULocationID rank
-|_ 1 -> 10;
-
-:=12.Computing DOLocationID rank
-|_ 1 -> 10;
-
-:=13.Drop temporary columns and save
-<color:red>(34_933_022 records);
 stop
 
 @enduml
