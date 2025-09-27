@@ -5,11 +5,8 @@ title  MPI to divide workload
 |Rank 0|
 start
 :=Config separate log for each process;
-:=Load dataset
-<color:red>(~3_493_302 records);
-:=Split data to training and test
-* 70% training <color:red>(~3_493_302 * 0.7 records)
-* 30% test <color:red>(~3_493_302 * 0.3 records);
+:=Load dataset;
+:=Split data to training and test;
 :<color:blue><b>Normalize train data
 * <b><color:red>stats</b>: features (mean, std);
 |All Ranks|

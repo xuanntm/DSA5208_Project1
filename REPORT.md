@@ -21,9 +21,11 @@ Preprocess activities to cleanup and remove outliner from dataset:
 \[
 \hat{y} = w_2^\top \,\sigma(W_1 x + b_1) + b_2
 \]
-- **Loss proxy logged each `eval_every`:** `R(θ_k)` = sampled MAE (fast to compute).
 - **Optimizer:** plain SGD (mini-batches). Gradients averaged with `MPI.Allreduce`.
 - **MPI** to connect 2 laptop and devide data set into 8 portions; 1st laptopn with Memory of 18 GB will handle 3 processes and 2nd laptop with Memory of 32 GB will handle 5 processes.
+
+Model Explaination as below flowchart:
+![Model Flowchart](docs/Model_train.png)
 
 ---
 
