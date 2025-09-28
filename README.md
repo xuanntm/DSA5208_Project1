@@ -59,12 +59,14 @@ python 01_preprocess_data.py --input_path data/input/nytaxi2022.csv --output_pat
 python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cleaned.csv --output-folder data/output/split_data --number-process 8
 ```
 
-## 5) install MPI 
+## 5) install MPI for macbook
 - for macbook
 ```bash
 brew install open-mpi
 ```
+
 - for windows
+```
 
 >1) Install Microsoft MPI (MS-MPI)
 
@@ -95,6 +97,7 @@ mpiexec -n 3 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --ep
 ```
 **Note**: with fulldata set ~ 39ml data; one Laptop (Memory of 18GB) cannot run whole dataset.
 For the training with MPI on single computer; can split data into multiple set; and only run few of them. Recomemdation: Split data into 8 set; and run MPI with 3 set (3 process) in 1 Laptop.
+
 ```
 
 
@@ -117,13 +120,83 @@ For the training with MPI on single computer; can split data into multiple set; 
 mpiexec -host {{LOCAL_IP}}:{{N_FIRST}} venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
         -host XuanNguyen@{{REMOTE_IP}}:{{N_SECOND}} {{PROJECT_DIRECTORY}}/venv/bin/python {{PROJECT_DIRECTORY}}/03_MPI_SGD_NN_train_v1.py --data {{PROJECT_DIRECTORY}}/data/output/split_data
 ```
-Sample :
+Default config:
+- '--epochs', type=int, default=1
+- '--batch-size', type=int, default=1024
+- '--hidden', type=int, default=64
+- '--lr', type=float, default=0.002
+- '--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu'
+- '--seed', type=int, default=123
+- '--sync-every', type=int, default=0
+- '--print-every', type=int, default=2500
+
+
+## 9) CLI script for Training/Test
+
+**3 activations** × **5 batch sizes** at **Process = 8**
 ```
-mpiexec -host 192.168.1.4:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
-        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data
+mpiexec -host 192.168.1.7:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 128 --print-every 2500 --activation relu : \
+        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 128 --print-every 100000 --activation relu
 
+mpiexec -host 192.168.1.7:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 128 --print-every 2500 --activation sigmoid : \
+        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 128 --print-every 100000 --activation sigmoid
 
-mpiexec -host 192.168.1.4:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --sync-every 50 : \
-        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --sync-every 50
+mpiexec -host 192.168.1.7:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 128 --print-every 2500 --activation tanh : \
+        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 128 --print-every 100000 --activation tanh
+```
+**different numbers of processes**
+```
+Laptop 1 runs 5 processes while Laptop 2 runs 7 processes
+
+mpiexec -host 192.168.1.7:7 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 210 --activation relu : \
+        -host XuanNguyen@192.168.1.9:5 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation relu
+
+Laptop 1 runs 6 processes while Laptop 2 runs 10 processes
+
+mpiexec -host 192.168.1.7:10 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 160 --activation relu : \
+        -host XuanNguyen@192.168.1.9:6 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation relu
+
+```
+**Efforts to Improve Results & Performance**
+
+Trial 1: Experience the RMSE and Training Time with different epoch = 3 and epoch = 5
+Since default of sync_every == 0, so with MPI, all process will sync at end of each epoch.
+```
+ReLU and Epoch = 3
+
+mpiexec -host 192.168.1.7:10 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 625 --activation relu --epochs 3 : \
+        -host XuanNguyen@192.168.1.9:6 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation relu --epochs 3
+
+ReLU and Epoch = 5
+
+mpiexec -host 192.168.1.7:10 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 625 --activation relu --epochs 5 : \
+        -host XuanNguyen@192.168.1.9:6 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation relu --epochs 5
+
+Tanh and Epoch = 3
+
+mpiexec -host 192.168.1.7:10 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 625 --activation tanh --epochs 3 : \
+        -host XuanNguyen@192.168.1.9:6 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation tanh --epochs 3
+
+Tanh and Epoch = 5
+
+mpiexec -host 192.168.1.7:10 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 310 --activation tanh --epochs 5 : \
+        -host XuanNguyen@192.168.1.9:6 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation tanh --epochs 5
+
+Sigmoid and Epoch = 3
+
+mpiexec -host 192.168.1.7:10 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 625 --activation sigmoid --epochs 3 : \
+        -host XuanNguyen@192.168.1.9:6 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation sigmoid --epochs 3
+
+Sigmoid and Epoch = 5
+
+mpiexec -host 192.168.1.7:10 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 625 --activation sigmoid --epochs 5 : \
+        -host XuanNguyen@192.168.1.9:6 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation sigmoid --epochs 5
+
+```
+Trial 2:  Experience to setup the MPI to sync at every 1000 batch (within epoch), instead of only sync at one time after each process finish at the end of an epoch
+
+```
+mpiexec -host 192.168.1.7:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --batch-size 1024 --print-every 310 --activation relu --epochs 1 --sync-every 1000 : \
+        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation relu --epochs 1 --sync-every 1000
 
 ```
