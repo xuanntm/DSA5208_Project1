@@ -77,7 +77,7 @@ brew install open-mpi
 # Test that MPI + Python work together
 mpiexec -n 2 py -c "from mpi4py import MPI; comm=MPI.COMM_WORLD; print(f'rank {comm.Get_rank()} of {comm.Get_size()}')"
 ```
->>>> You should see two lines like:
+>>> You should see two lines like:
 ```nginx
 rank 0 of 2
 rank 1 of 2
