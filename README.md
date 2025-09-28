@@ -59,9 +59,28 @@ python 01_preprocess_data.py --input_path data/input/nytaxi2022.csv --output_pat
 python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cleaned.csv --output-folder data/output/split_data --number-process 8
 ```
 
-## 5) install MPI for macbook
+## 5) install MPI 
+- for macbook
 ```bash
 brew install open-mpi
+```
+- for windows
+
+>1) Install Microsoft MPI (MS-MPI)
+
+>- Download and install Microsoft MPI (MS-MPI) Redistributable (64-bit).
+
+>- After install, mpiexec.exe typically lives at: `C:\Program Files\Microsoft MPI\Bin\mpiexec.exe`
+
+>2) Verify
+```powershell
+# Test that MPI + Python work together
+mpiexec -n 2 py -c "from mpi4py import MPI; comm=MPI.COMM_WORLD; print(f'rank {comm.Get_rank()} of {comm.Get_size()}')"
+```
+>>>> You should see two lines like:
+```nginx
+rank 0 of 2
+rank 1 of 2
 ```
 
 ## 6) Training with MPI on single computer
