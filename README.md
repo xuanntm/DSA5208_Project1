@@ -68,7 +68,7 @@ brew install open-mpi
 
 >1) Install Microsoft MPI (MS-MPI)
 
->- Download and install Microsoft MPI (MS-MPI) Redistributable (64-bit).
+>- Download and install Microsoft MPI (MS-MPI) Redistributable (64-bit): `MSMpiSetup.exe`
 
 >- After install, mpiexec.exe typically lives at: `C:\Program Files\Microsoft MPI\Bin\mpiexec.exe`
 
