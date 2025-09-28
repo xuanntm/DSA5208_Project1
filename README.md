@@ -56,7 +56,7 @@ python 01_preprocess_data.py --input_path data/input/nytaxi2022.csv --output_pat
 
 ## 4) Split cleanup data for number of processes
 ```bash
-python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cleaned.csv --output-folder data/output/split_data --number-process 20
+python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cleaned.csv --output-folder data/output/split_data --number-process 8
 ```
 
 ## 5) install MPI for macbook
@@ -74,28 +74,37 @@ mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data
 mpiexec -n 3 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 1 --batch-size 512 --hidden 64 --lr 0.002 --activation relu
 ```
 ```
-Case 1: --sync-every 0 → only sync at end of epoch.
-Case 2: --sync-every 100 → do 100 local updates, then sync parameters.
+**Note**: with fulldata set ~ 39ml data; one Laptop (Memory of 18GB) cannot run whole dataset.
+For the training with MPI on single computer; can split data into multiple set; and only run few of them. Recomemdation: Split data into 8 set; and run MPI with 3 set (3 process) in 1 Laptop.
 ```
 
 
-## 7) Config for multiple computers
+## 7) Config for multiple computers - For MACBOOK
 ```text
-- enable remote access on second compute
-- try to connect from first computer to second compute
-ssh XuanNguyen@192.168.1.9 # UserName and local IP (wifi) ??? LAN network
+- enable remote access on second laptop
+- try to connect from first computer to second computer
+- Sample: ssh XuanNguyen@192.168.1.9 # UserName and local IP (wifi) ??? LAN network
 - Run the same step on second laptop after clone source code from github
 1) Create environment
 2) Create data folder structure
 - Copy split file from first computer to second compute (depend on where you keep the source code)
-for example: scp -r data/output/split_data/to_20/ username@remote_host:{PROJECT_DIRECTORY}/data/output/split_data/to_20/
+- Example: scp -r data/output/split_data/to_20/ username@remote_host:{PROJECT_DIRECTORY}/data/output/split_data/to_20/
 ```
 
 ## 8) Training with MPI on multiple computers
-> you have to run the split data script base on  
-> Total = N_FIRST + N_SECOND
+> Each computer will have to run from **Step 1 to 5 with same config** (number of process)  
+> Total Process (N) = N_FIRST + N_SECOND
 ```bash
 mpiexec -host {{LOCAL_IP}}:{{N_FIRST}} venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
         -host XuanNguyen@{{REMOTE_IP}}:{{N_SECOND}} {{PROJECT_DIRECTORY}}/venv/bin/python {{PROJECT_DIRECTORY}}/03_MPI_SGD_NN_train_v1.py --data {{PROJECT_DIRECTORY}}/data/output/split_data
 ```
+Sample :
+```
+mpiexec -host 192.168.1.4:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
+        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data
 
+
+mpiexec -host 192.168.1.4:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --sync-every 50 : \
+        -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --sync-every 50
+
+```
