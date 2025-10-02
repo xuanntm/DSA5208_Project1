@@ -15,14 +15,189 @@ Preprocess activities to cleanup and remove outliner from dataset:
 
 
 
-## 2) Model & Training
+# 2) Theory & Algorithm
 
-- **Network:** 1 hidden layer, linear output  
-\[
-\hat{y} = w_2^\top \,\sigma(W_1 x + b_1) + b_2
-\]
-- **Optimizer:** plain SGD (mini-batches). Gradients averaged with `MPI.Allreduce`.
-- **MPI** to connect 2 laptop and devide data set into 8 portions; 1st laptopn with Memory of 18 GB will handle 3 processes and 2nd laptop with Memory of 32 GB will handle 5 processes.
+## 2.1 Model and Loss
+
+We train a 1-hidden-layer neural network for scalar regression (predicting `total_amount`). 
+- Inputs $\mathbf{x}\in\mathbb{R}^{m}$, 
+- hidden width $H$, 
+- activation $\sigma\in{\text{ReLU},\tanh,\text{sigmoid}}$, 
+- parameters $\theta={\mathbf{W}_1\in\mathbb{R}^{H\times m},\ \mathbf{b}_1\in\mathbb{R}^{H},\ \mathbf{w}_2\in\mathbb{R}^{H},\ b_2\in\mathbb{R}}$. 
+
+**Forward (single sample):**
+
+$$
+\mathbf{z}=\mathbf{W}_1\mathbf{x}+\mathbf{b}_1,\qquad
+\mathbf{a}=\sigma(\mathbf{z}),\qquad
+\hat{y}=\mathbf{w}_2^{\top}\mathbf{a}+b_2.
+$$
+
+**Per-sample loss & empirical risk:**
+
+$$
+\ell(\theta;\mathbf{x},y)=\tfrac{1}{2}(\hat{y}-y)^2,\qquad
+R(\theta)=\frac{1}{N}\sum_{i=1}^{N}\ell(\theta;\mathbf{x}_i,y_i).
+$$
+
+**RMSE on a set $\mathcal{S}$:**
+
+$$
+\mathrm{RMSE}=\sqrt{\frac{1}{|\mathcal{S}|}\sum_{(\mathbf{x},y)\in\mathcal{S}}\bigl(\hat{y}-y\bigr)^2}.
+$$
+
+We **log** $R(\theta_k)$ vs iteration (k) at **epoch end** using a **global** SSE Allreduce (see §2.7). Final RMSE (train/test) is computed **globally**. 
+
+---
+
+## 2.2 Activations and Derivatives (elementwise)
+```math
+
+\textbf{ReLU: }\ \sigma(z)=\max(0,z),\ \ \sigma'(z)=\mathbf{1}[z>0];\qquad
+\textbf{Sigmoid: }\ \sigma(z)=\frac{1}{1+e^{-z}},\ \ \sigma'(z)=\sigma(z)\bigl(1-\sigma(z)\bigr);
+\textbf{Tanh: }\ \sigma(z)=\tanh(z),\ \ \sigma'(z)=1-\tanh^2(z).
+```
+(These are implemented explicitly.) 
+
+---
+
+## 2.3 Gradients (single sample)
+
+Let $e=\hat{y}-y$. Then
+```math
+\begin{aligned}
+\frac{\partial \ell}{\partial \hat{y}}&=e,\qquad
+\frac{\partial \ell}{\partial \mathbf{w}_2}=e\mathbf{a}^{\top},\qquad
+\frac{\partial \ell}{\partial b_2}=e,\\
+\\
+\frac{\partial \ell}{\partial \mathbf{a}}&=e\mathbf{w}_2,\qquad
+\frac{\partial \ell}{\partial \mathbf{z}}=\bigl(e\mathbf{w}_2\bigr)\odot\sigma'(\mathbf{z}),\\
+\\
+\frac{\partial \ell}{\partial \mathbf{W}_1}&=\bigl(\bigl(e\mathbf{w}_2\bigr)\odot\sigma'(\mathbf{z})\bigr)\mathbf{x}^{\top},\qquad
+\frac{\partial \ell}{\partial \mathbf{b}_1}=\bigl(e\mathbf{w}_2\bigr)\odot\sigma'(\mathbf{z}).
+\end{aligned}
+```
+
+The implementation averages batch gradients by dividing by (B) inside `backward`. 
+
+---
+
+## 2.4 Vectorized Mini-Batch ($B$ samples)
+
+Stack $\mathbf{X}\in\mathbb{R}^{B\times m},\ \mathbf{y}\in\mathbb{R}^{B}$.
+
+$$
+\mathbf{Z}=\mathbf{X}\mathbf{W}_1^{\top}+\mathbf{1}\mathbf{b}_1^{\top},\quad
+\mathbf{A}=\sigma(\mathbf{Z}),\quad
+\hat{\mathbf{y}}=\mathbf{A}\mathbf{w}_2+b_2\mathbf{1}.
+$$
+Let $\mathbf{e}=\hat{\mathbf{y}}-\mathbf{y}$, 
+$$
+\mathbf{G}_Z=(\mathbf{e}\mathbf{w}_2^{\top})\odot\sigma'(\mathbf{Z}).
+$$
+Averaging over the batch:
+$$
+\frac{1}{B}\frac{\partial \ell}{\partial \mathbf{w}_2}=\frac{1}{B}\mathbf{A}^{\top}\mathbf{e},\quad
+\frac{1}{B}\frac{\partial \ell}{\partial b_2}=\frac{1}{B}\mathbf{1}^{\top}\mathbf{e},\\
+\\
+\frac{1}{B}\frac{\partial \ell}{\partial \mathbf{W}_1}=\frac{1}{B}\mathbf{X}^{\top}\mathbf{G}_Z,\quad
+\frac{1}{B}\frac{\partial \ell}{\partial \mathbf{b}_1}=\frac{1}{B}\mathbf{1}^{\top}\mathbf{G}_Z.
+$$
+
+The code implements the same vectorized forms and then flattens to a single parameter vector for updates. 
+
+---
+
+## 2.5 Data Distribution & Normalization (as implemented)
+
+* **Even storage / loading.** Before training, the raw CSV is split into `to_{P}/part_{rank}.csv`. Each rank (p) **reads only its shard**:
+  `args.data/to_{size}/part_{rank}.csv`. This meets the **“stored nearly evenly”** requirement and avoids broadcasting the whole dataset. 
+* **Train/test split.** Each rank performs a local 70/30 split using a fixed RNG. 
+* **Feature scaling only.** Rank 0 computes **feature** means/std from its **local** train subset, broadcasts ${\mu_j,\sigma_j}$ and the list of feature columns to all ranks, and each rank standardizes its local train/test features using those values. The **target is not standardized**. (This assumes i.i.d. shards so rank 0’s stats approximate global.) 
+
+---
+
+## 2.6 Local-SGD with **Periodic Parameter Averaging**
+
+Each rank runs mini-batch SGD **locally** and periodically performs an **Allreduce over the parameter vector** (sum, then divide by (P)):
+
+* If `--sync-every > 0`: average **every (K)** batches.
+* If `--sync-every  = 0`: average **once at epoch end**.
+
+**Per-batch step on rank (p):**
+
+1. Sample local batch $(\mathbf{X}_p,\mathbf{y}_p)$.
+2. Forward → compute $\hat{\mathbf{y}}$, loss.
+3. Backward → batch-averaged gradient vector $\mathbf{g}_p$.
+4. Local update: $\theta_p \leftarrow \theta_p - \eta,\mathbf{g}_p$.
+5. If it’s a sync step: Allreduce on the **parameter vector** and set $\theta_p \leftarrow \frac{1}{P}\sum_{q}\theta_q$.
+
+Formally, after $K$ local steps,
+
+$$
+\theta_p \leftarrow \theta_p - \eta\sum_{k=1}^{K}\mathbf{g}^{(k)}*{p},\qquad
+\theta \leftarrow \frac{1}{P}\sum*{p=0}^{P-1}\theta_p
+\quad \text{(parameter Allreduce/average)}.
+$$
+
+This reduces communication (only every $K$ steps) at the cost of **model drift**; accuracy depends on $K$ and $\eta$. The code implements parameter flattening and `Allreduce` for this averaging. 
+
+---
+
+## 2.7 Objective Logging and Final Metrics
+
+* **Epoch-end $R(\theta)$.** Each rank computes local SSE on its full **local** train set; ranks sum SSE via `Allreduce`, then
+  
+$$ R(\theta_k) = \frac{1}{2N}\mathrm{SSE}_{\text{global}}. $$
+  
+  This global value is logged once per epoch. (There is also an optional **local** $R(\theta)$ print every `print_every` steps for debugging.) 
+* **Final RMSE (global).** Train/test SSE are computed **locally** and then **summed** via `Allreduce`, divided by global counts, and square-rooted:
+  
+$$
+  \mathrm{RMSE}{\text{train}}=\sqrt{\frac{\sum_p \mathrm{SSE}{p,\text{train}}}{\sum_p N_{p,\text{train}}}},\qquad
+  \mathrm{RMSE}{\text{test}}=\sqrt{\frac{\sum_p \mathrm{SSE}{p,\text{test}}}{\sum_p N_{p,\text{test}}}}.
+$$
+
+  (Units are USD because the target is not standardized.) 
+
+---
+
+## 2.8 Complexity & Communication
+
+Let $S=\lvert\theta\rvert = Hm + H + H + 1$ be parameter count.
+
+* **Compute per batch per rank:** $O(B,m,H)$ forward + $O(B,m,H)$ backward (dominant).
+* **Communication (parameter averaging):** one Allreduce on (S) floats **every $K$ batches**:
+  $\approx \alpha\log P + \beta,S\log P$ per Allreduce $latency (\alpha), per-byte (\beta)$.
+* Larger $K$ → fewer comms (higher throughput), but greater drift; smaller $K$ → closer to fully synchronous behavior.
+
+---
+
+## 2.9 Strong-Scaling Metrics
+
+With wall-clock times (T_P) at (P) processes:
+
+$$
+\text{Speedup}(P)=\frac{T_{1}}{T_{P}},\qquad
+\text{Efficiency}(P)=\frac{T_{1}}{P,T_{P}}=\frac{\text{Speedup}(P)}{P}.
+$$
+
+---
+
+## 2.10 Practical Hyperparameters
+
+From the CLI: `--epochs` (default 1), `--batch-size` (default 1024), `--hidden` (default 64), `--lr` (default 0.002), `--activation` (`relu|tanh|sigmoid`), `--seed` (123), `--sync-every` (0 = epoch-end), `--print-every` (2500), `--save-model` (directory). These map directly to the training loop above. 
+
+---
+
+**Notes & Assumptions:**
+
+* Data shards: each rank reads `.../to_{P}/part_{rank}.csv` (nearly even rows). 
+* Feature scaling only (target not standardized); stats computed on **rank 0’s train shard** and broadcast to all ranks (assumes i.i.d. across shards). 
+* Local-SGD with periodic **parameter** Allreduce; epoch-end global $R(\theta)$; final global RMSE via SSE Allreduce. 
+
+---
+
 
 Model Explaination as below flowchart:
 ![Model Flowchart](docs/Model_train.png)
