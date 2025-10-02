@@ -305,7 +305,7 @@ Result:
 |8             |25923545         |3240444    |67.488    |16.367756 |16.365548|85.3176          |rank0_relu1024_epoch1.log          |
 
 **Obeservation**: 
-Seeingg the reducing of training time when increasing number of process (MPI), not much  significant change interm of RMSE_Train or RMSE_Test
+Seeing the reducing of training time when increasing number of process (MPI), not much  significant change interm of RMSE_Train or RMSE_Test
 ---
 ## 5) Efforts to Improve Results & Performance
 ---
