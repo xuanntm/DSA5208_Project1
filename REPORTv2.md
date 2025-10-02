@@ -173,18 +173,7 @@ Let $S=\lvert\theta\rvert = Hm + H + H + 1$ be parameter count.
 
 ---
 
-### 2.9 Strong-Scaling Metrics
-
-With wall-clock times (T_P) at (P) processes:
-
-$$
-\text{Speedup}(P)=\frac{T_{1}}{T_{P}},\qquad
-\text{Efficiency}(P)=\frac{T_{1}}{P,T_{P}}=\frac{\text{Speedup}(P)}{P}.
-$$
-
----
-
-### 2.10 Practical Hyperparameters
+### 2.9 Practical Hyperparameters
 
 From the CLI: `--epochs` (default 1), `--batch-size` (default 1024), `--hidden` (default 64), `--lr` (default 0.002), `--activation` (`relu|tanh|sigmoid`), `--seed` (123), `--sync-every` (0 = epoch-end), `--print-every` (2500), `--save-model` (directory). These map directly to the training loop above. 
 
