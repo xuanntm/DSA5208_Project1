@@ -226,6 +226,7 @@ Common settings: `lr=0.002`, `hidden units = 64`, `epochs=1`, `seed=123`
   ![RMSE vs batch](charts/result/rmse_test_epochs1.png)
   ![RMSE vs batch](charts/result/rmse_train_epochs1.png)
 In this graph, ReLU and Sigmoid exhibit similar trend, where the RSME decrease as batch size increase, at a decreasing rate. While Tanh RSME increased as batch size increases. 
+
 Activation Function Properties & Optimization:
 - Tanh (Hyperbolic Tangent): tanh(x) = (e^x - e^-x) / (e^x + e^-x). It outputs values between -1 and 1. Its derivative (1 - tanh(x)^2) is close to 0 for large positive or negative inputs (the "saturation" problem). This can lead to vanishing gradients, making it harder for the network to learn, especially if weights become too large during training.
 - ReLU (Rectified Linear Unit): ReLU(x) = max(0, x). It outputs 0 for negative inputs and x for positive inputs. Its derivative is 0 for negative inputs and 1 for positive inputs. It doesn't suffer from vanishing gradients for positive inputs and is computationally very efficient.
