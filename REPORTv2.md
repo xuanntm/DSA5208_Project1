@@ -359,10 +359,8 @@ Common settings: `lr=0.002`, `hidden units = 64`, `epochs=1`, `seed=123`
 |Synchronize every 1000 batch (within 1 epoch)      |85.395    |3.961258  |3.968538 |104.0165         |rank0_relu1024_epoch1_syncevery1000.log|
 |No synchronize during training time (within 1 epoch)        |67.488    |16.367756 |16.365548|85.3176          |rank0_relu1024_epoch1.log|
 
-**Observation:** 
+**Observation:** when setup the MPI to sync at every 1000 batch, instead of only sync at one time after each process finish (within 1 epoch), it witnesses a significant improvement of RMSE_Train and RMSE_Test from ~16.36 to ~3.97, but Training time also increases from ~85.32s to ~104.
 
-when setup the MPI to sync at every 1000 batch, instead of only sync at one time after each process finish (within 1 epoch), it witnesses a significant improvement of RMSE_Train and RMSE_Test from ~16.36 to ~3.97, but Training time also increases from ~85.32s to ~104.
----
 ## 7) Summary and limitation
 
 From above outcome and considering the effort to improve the RMSE_Train, **balanced** config is below combination:
