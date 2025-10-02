@@ -15,9 +15,9 @@ Preprocess activities to cleanup and remove outliner from dataset:
 
 
 
-# 2) Theory & Algorithm
+## 2) Theory & Algorithm
 
-## 2.1 Model and Loss
+### 2.1 Model and Loss
 
 We train a 1-hidden-layer neural network for scalar regression (predicting `total_amount`). 
 - Inputs $\mathbf{x}\in\mathbb{R}^{m}$, 
@@ -50,7 +50,7 @@ We **log** $R(\theta_k)$ vs iteration (k) at **epoch end** using a **global** SS
 
 ---
 
-## 2.2 Activations and Derivatives (elementwise)
+### 2.2 Activations and Derivatives (elementwise)
 ```math
 
 \textbf{ReLU: }\ \sigma(z)=\max(0,z),\ \ \sigma'(z)=\mathbf{1}[z>0];\qquad
@@ -61,7 +61,7 @@ We **log** $R(\theta_k)$ vs iteration (k) at **epoch end** using a **global** SS
 
 ---
 
-## 2.3 Gradients (single sample)
+### 2.3 Gradients (single sample)
 
 Let $e=\hat{y}-y$. Then
 ```math
@@ -82,7 +82,7 @@ The implementation averages batch gradients by dividing by (B) inside `backward`
 
 ---
 
-## 2.4 Vectorized Mini-Batch ($B$ samples)
+### 2.4 Vectorized Mini-Batch ($B$ samples)
 
 Stack $\mathbf{X}\in\mathbb{R}^{B\times m},\ \mathbf{y}\in\mathbb{R}^{B}$.
 
@@ -108,7 +108,7 @@ The code implements the same vectorized forms and then flattens to a single para
 
 ---
 
-## 2.5 Data Distribution & Normalization (as implemented)
+### 2.5 Data Distribution & Normalization (as implemented)
 
 * **Even storage / loading.** Before training, the raw CSV is split into `to_{P}/part_{rank}.csv`. Each rank (p) **reads only its shard**:
   `args.data/to_{size}/part_{rank}.csv`. This meets the **“stored nearly evenly”** requirement and avoids broadcasting the whole dataset. 
@@ -117,7 +117,7 @@ The code implements the same vectorized forms and then flattens to a single para
 
 ---
 
-## 2.6 Local-SGD with **Periodic Parameter Averaging**
+### 2.6 Local-SGD with **Periodic Parameter Averaging**
 
 Each rank runs mini-batch SGD **locally** and periodically performs an **Allreduce over the parameter vector** (sum, then divide by (P)):
 
@@ -144,7 +144,7 @@ This reduces communication (only every $K$ steps) at the cost of **model drift**
 
 ---
 
-## 2.7 Objective Logging and Final Metrics
+### 2.7 Objective Logging and Final Metrics
 
 * **Epoch-end $R(\theta)$.** Each rank computes local SSE on its full **local** train set; ranks sum SSE via `Allreduce`, then
   
@@ -162,7 +162,7 @@ $$
 
 ---
 
-## 2.8 Complexity & Communication
+### 2.8 Complexity & Communication
 
 Let $S=\lvert\theta\rvert = Hm + H + H + 1$ be parameter count.
 
@@ -173,7 +173,7 @@ Let $S=\lvert\theta\rvert = Hm + H + H + 1$ be parameter count.
 
 ---
 
-## 2.9 Strong-Scaling Metrics
+### 2.9 Strong-Scaling Metrics
 
 With wall-clock times (T_P) at (P) processes:
 
@@ -184,7 +184,7 @@ $$
 
 ---
 
-## 2.10 Practical Hyperparameters
+### 2.10 Practical Hyperparameters
 
 From the CLI: `--epochs` (default 1), `--batch-size` (default 1024), `--hidden` (default 64), `--lr` (default 0.002), `--activation` (`relu|tanh|sigmoid`), `--seed` (123), `--sync-every` (0 = epoch-end), `--print-every` (2500), `--save-model` (directory). These map directly to the training loop above. 
 
