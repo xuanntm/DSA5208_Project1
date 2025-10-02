@@ -254,9 +254,10 @@ Since the dataset is distributed across multiple MPI processes, each process has
     <img src="charts/history/rank0_relu2048_epoch1.log_history.png"  alt="RelU bs2048"  width="45%">
   <div>
   </div>
-    A decreasing curve indicates that the model is learning: as iterations progress, the loss function of the sampled data points is getting smaller, meaning the predictions are becoming more accurate. The initial step drop indicated rapid learning in the early iterations. 
+    A decreasing curve indicates that the model is learning: as iterations progress, the loss function of the sampled data points is getting smaller, meaning the predictions are becoming more accurate. The initial steep drop indicated rapid learning in the early iterations. 
 
-    For Sigmoid  ~ experiment with 5 different batch size at epoch=1
+
+  For Sigmoid  ~ experiment with 5 different batch size at epoch=1
 
   <div>
     <img src="charts/history/rank0_sigmoid128_epoch1.log_history.png" alt="sigmoid bs128" width="45%">
@@ -266,8 +267,10 @@ Since the dataset is distributed across multiple MPI processes, each process has
     <img src="charts/history/rank0_sigmoid2048_epoch1.log_history.png"  alt="sigmoid bs2048"  width="45%">
   <div>
   </div>
+    These results show that with Sigmoid activation at epoch 1, smaller batch sizes (128–256) achieve the lowest loss more quickly, while larger batches (512–2048) start with much higher losses and require stronger corrections to improve. Although all batch sizes show steady downward trends, the final losses for larger batches remain slightly higher after one epoch, reflecting the trade-off between update frequency and stability. This highlights that sigmoid networks are more sensitive to batch size, as frequent small updates help prevent saturation and improve convergence speed, whereas very large batches adapt more slowly within limited training time.
 
-    For Tanh  ~ experiment with 5 different batch size at epoch=1
+
+  For Tanh  ~ experiment with 5 different batch size at epoch=1
   <div>
     <img src="charts/history/rank0_tanh128_epoch1.log_history.png" alt="tanh bs128" width="45%">
     <img src="charts/history/rank0_tanh256_epoch1.log_history.png"  alt="tanh bs256"  width="45%">
@@ -276,6 +279,7 @@ Since the dataset is distributed across multiple MPI processes, each process has
     <img src="charts/history/rank0_tanh2048_epoch1.log_history.png"  alt="Tanh bs2048"  width="45%">
   <div>
   </div>
+  Tanh can cause gradients to shrink (vanish) when inputs are large, which slows training. Small batches introduce more frequent and slightly noisier updates, which helps the model keep making progress even when gradients are small. Large batches, with fewer updates, do not offset this issue as well, so they reduce loss less effectively in one epoch.
 ---
 ## 4) Training times for different numbers of processes 
 
