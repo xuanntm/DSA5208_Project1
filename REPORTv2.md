@@ -342,6 +342,7 @@ Training time grows with epoch, with ReLU the fastest as it is the only activati
     <img src="charts/history/rank0_relu1024_epoch5.log_history.png"  alt="RelU bs512"  width="45%">
   <div>
   </div>
+  For ReLU with batch size 1024, the training histories show that the loss steadily decreases across epochs, with the largest improvement occurring between epoch 1 and epoch 3. At epoch 1, the loss decreases smoothly but remains relatively high, while by epoch 3 the loss drops further, though occasional spikes appear due to overshooting from the optimizer or large-batch dynamics. By epoch 5, the loss continues to decline but at a much slower rate, indicating diminishing returns and suggesting that early stopping around epoch 3 may be sufficient. Overall, ReLU converges reliably and efficiently, with its low computational cost making it faster than sigmoid or tanh, though the brief spikes highlight the sensitivity of large-batch training to learning rate and gradient synchronization.
 ---
 
 ## Trial 2:  Experience to setup the MPI to sync at every 1000 batch, instead of only sync at one time after each process finish
