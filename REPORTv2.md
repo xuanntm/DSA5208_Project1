@@ -2,13 +2,55 @@
 
 **Course:** DSS5208 – Scalable Distributed Computing for Data Science  
 **Goal:** Train a 1-hidden-layer neural network on NYC taxi data using **MPI (mpi4py)**.  
-We run three activation functions σ and at five batch sizes M, log training histories, report RMSE on train/test, and training Times for different number of processes 
+We run three activation functions σ and at five batch sizes M, log training histories, report RMSE on train/test, and training Times for different number of processes across computers.
 Data are stored **nearly evenly** across processes via memory-mapped shards.
+
+**Team Member:**
+Nguyen Thi Minh Xuan  - A0299085L
+Xiao Man - A0012709M
+Joyce Grace Zheng Tianjiao - A0298318N
 
 ## 1) Data & Preprocessing
 
 - **Raw:** `nytaxi2022.csv` (not tracked in Git).
+- **Execution**: 01_preprocess_data.py
 - **Cleaned:** `nytaxi2022_cleaned.csv`
+
+- **Purpose:** to improve model performance by cleaning, transforming, and ensuring accuracy. It handles missing values, removes outliers, and categorizes data to reduce noise and capture patterns effectively. These steps lead to more reliable and accurate model predictions.
+
+In detail:
+- Remove any row, which has empty (na) data cell
+- Feature "extra": remove row, which "extra" value <0
+- Feature "trip_distance": remove near-zero distance (<0.1 miles) and unrealistic long trips (too far for taxi trip), remove row, which trip_distance > 100 miles
+- Calculate feature "trip_duration_minutes" = "tpep pickup datetime - tpep dropoff datetime", and then remove row, which trip_duration is considering "outliner" of model (smaller than 2 mins and larger than 300 minutes)
+- Feature "Total_fare": remove row, which contains fare <0 and remove outliner 0.01 % largest data
+- Grouping for below feature: 
+    - Pick-up hour: Low demand group (14pm tp 18pm); normal demand (8am to 13pm; and 19pm tp 22pm); high demand (23pm to 7am)
+    - Passenger count:single, double or other
+    - Rate code: either 1 or other
+    - Payment_type: 1,2 or other
+- Feature "PULocationID" and "DOLocationID": basing on the fequency of data (location ID), diviting them in 10 group ranking by frequency
+
+- After grouping activities, from original **9** features, now we have total **16** features
+
+| Column                     | Data Type | Description                                   |
+|----------------------------|------------|----------------------------------------------|
+| trip_distance              | float64    | Distance of the trip                         |
+| extra                      | float64    | Extra charges                                |
+| trip_duration_minutes      | float64    | Duration of trip in minutes                  |
+| demand_type_high           | bool       | High demand indicator                        |
+| demand_type_low            | bool       | Low demand indicator                         |
+| demand_type_normal         | bool       | Normal demand indicator                      |
+| passenger_count_single     | int64      | Number of single passengers                  |
+| passenger_count_double     | int64      | Number of double passengers                  |
+| passenger_count_other      | int64      | Other passenger counts                       |
+| RatecodeID_1               | int64      | Specific rate code ID                        |
+| RatecodeID_other           | int64      | Other rate code ID                          |
+| payment_type_1             | int64      | Payment type 1                              |
+| payment_type_2             | int64      | Payment type 2                              |
+| payment_type_other         | int64      | Other payment types                         |
+| PULocationID_rank         | int64      | Pick-up location ranking                    |
+| DOLocationID_rank         | int64      | Drop-off location ranking                   |
 
 Preprocess activities to cleanup and remove outliner from dataset:
 ![Preprocess Flow](docs/preprocess.png)
@@ -192,14 +234,15 @@ Model Explaination as below flowchart:
 ![Model Flowchart](docs/Model_train.png)
 
 ---
+## 3) Activate MPI and 2 computers config
 
-## 3) Experiment Grid (σ × M) and Results 
+Due to the large volume of data and the limited processing power of a single laptop, it is not feasible to run complex neural networks on one machine. To address this, Multiple Processing Interface (MPI) is used to connect two computers, enabling parallel processing. This setup distributes data and computational tasks across multiple machines, significantly improving efficiency and allowing the training of models on large datasets.
 
-Activate MPI in the begining of Training with Process = 8.
+Activate MPI in the begining of Training with Process = (x). Laptop 1 (18 GB) will handle (x) processes and Laptop 2 (32 GB) will handle (x) processes. Laptop 2 (32 GB) is the main one to start and then enable laptop 1 to follow.
 
-Laptop 1 (18 GB) will handle 3 processes and Laptop 2 (32 GB) will handle 5 processes
+## 4) Experiment Grid (σ × M) and Results 
 
-Laptop 2 (32 GB) is the main one to start and then enable laptop 1 to follow.
+Activate MPI in the begining of Training with Process = (8). Laptop 1 (18 GB) will handle (3) processes and Laptop 2 (32 GB) will handle (5) processes. Laptop 2 (32 GB) is the main one to start and then enable laptop 1 to follow.
 
 Parameters of experiment:
  **3 activations** × **5 batch sizes** at **Process = 8**.  chosen per activation/M:
@@ -281,7 +324,7 @@ Since the dataset is distributed across multiple MPI processes, each process has
   </div>
   Tanh can cause gradients to shrink (vanish) when inputs are large, which slows training. Small batches introduce more frequent and slightly noisier updates, which helps the model keep making progress even when gradients are small. Large batches, with fewer updates, do not offset this issue as well, so they reduce loss less effectively in one epoch.
 ---
-## 4) Training times for different numbers of processes 
+## 5) Training times for different numbers of processes 
 
 experience for ReLU - considering from above experience (3) best combination at config:
 - **Activation:** ReLU  
@@ -304,12 +347,13 @@ Result:
 |16            |25923545         |1620222    |54.432    |18.830995 |18.8193  |70.1238          |rank0_relu1024_epoch1_process16.log|
 |8             |25923545         |3240444    |67.488    |16.367756 |16.365548|85.3176          |rank0_relu1024_epoch1.log          |
 
-**Obeservation**: 
-Seeing the reducing of training time when increasing number of process (MPI), not much  significant change interm of RMSE_Train or RMSE_Test
+
+**Obeservation**: Seeing the reducing of training time when increasing number of process (MPI), not much  significant change interm of RMSE_Train or RMSE_Test
+
 ---
-## 5) Efforts to Improve Results & Performance
+## 6) Efforts to Improve Results & Performance
 ---
-## Trial 1: Experience the RMSE and Training Time with different epoch = 1 and epoch = 5
+## Trial 1: Experience the RMSE and Training Time with different epoch = 1, epoch = 3 and epoch = 5
 Config shown: **ReLU, M=256, n=256**, P ∈ {1,2,4,8}. See `results/scaling_table.csv`.
  
 - **Batch size (M):** 1024  
@@ -365,17 +409,18 @@ Common settings: `lr=0.002`, `hidden units = 64`, `epochs=1`, `seed=123`
 |Synchronize every 1000 batch (within 1 epoch)      |85.395    |3.961258  |3.968538 |104.0165         |rank0_relu1024_epoch1_syncevery1000.log|
 |No synchronize during training time (within 1 epoch)        |67.488    |16.367756 |16.365548|85.3176          |rank0_relu1024_epoch1.log|
 
-**Observation:** when setup the MPI to sync at every 1000 batch, instead of only sync at one time after each process finish (within 1 epoch), it witnesses a significant improvement of RMSE_Train and RMSE_Test from ~16.36 to ~3.97, but Training time also increases from ~85.32s to ~104.
+**Observation:** when setup the MPI to sync at every 1000 batch, instead of only sync at one time after each process finish (within 1 epoch), it witnesses a significant improvement of RMSE_Train and RMSE_Test from ~16.36 to ~3.97, but Training time also increases from ~85.32s to ~104.0165
 
 ## 7) Summary and limitation
 
-From above outcome and considering the effort to improve the RMSE_Train, **balanced** config is below combination:
+From above outcome and considering the effort to improve the RMSE_Train = 3.9685  without compromising training time = 104.0165, **balanced** config is below combination:
 
 - **activations**: ReLU
 - **batch sizes**: 1024
 - **Process**: 8
-- **Epoch**: 3
+- **Epoch**: 1
 - **setup the MPI to sync at every 1000 batch**
 
 Common settings: `lr=0.002`, `hidden units = 64`, `seed=123`
 
+Limitation: The current limitation is that each time the model is executed, the results are only recorded in logs, requiring manual saving of outputs to a separate folder. To manage this, you need to modify the configuration (CLI) to set up a new configuration for each experiment, ensuring that results are properly organized and saved manually. 
