@@ -96,7 +96,7 @@ def calculate_sse(model, X, Y, calculate_size=128):
     sse = 0.0
     n_samples = X.shape[0]
 
-    for start in range(0, n_samples, calcucalculate_sizelate_size):
+    for start in range(0, n_samples, calculate_size):
         end = start + calculate_size
         X_batch = X[start:end]
         Y_batch = Y[start:end]
