@@ -6,9 +6,9 @@ We run three activation functions σ and at five batch sizes M, log training his
 Data are stored **nearly evenly** across processes via memory-mapped shards.
 
 **Team Member:**
-Nguyen Thi Minh Xuan  - A0299085L
-Xiao Man - A0012709M
-Joyce Grace Zheng Tianjiao - A0298318N
+- Nguyen Thi Minh Xuan  - A0299085L
+- Xiao Man - A0012709M
+- Joyce Grace Zheng Tianjiao - A0298318N
 
 ## 1) Data & Preprocessing
 
