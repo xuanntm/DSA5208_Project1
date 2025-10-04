@@ -98,7 +98,7 @@ mpiexec -n 4 python 04_MPI_SGD_NN_train_support_single_laptop.py --data data/out
 ```
 > Run with custom parameters
 ```bash
-mpiexec -n 3 04_MPI_SGD_NN_train_support_single_laptop.py --data data/output/split_data --epochs 1 --batch-size 512 --hidden 64 --lr 0.002 --activation relu
+mpiexec -n 3 python 04_MPI_SGD_NN_train_support_single_laptop.py --data data/output/split_data --epochs 1 --batch-size 512 --hidden 64 --lr 0.002 --activation relu
 ```
 ```text
 **Note**: with fulldata set ~ 39ml data; one Laptop (Memory of 18GB) cannot run program: 03_MPI_SGD_NN_train_v1 with whole dataset.
