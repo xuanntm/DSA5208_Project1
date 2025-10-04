@@ -138,6 +138,8 @@ Default config:
 - '--sync-every', type=int, default=0
 - '--print-every', type=int, default=2500
 
+Output will be recorded in #logs; then manually intervention to rename log-rank0 to record result, before start new CLI for different experiment. 
+
 
 ## 9) CLI script for Training/Test
 
@@ -211,3 +213,6 @@ mpiexec -host 192.168.1.7:5 venv/bin/python 03_MPI_SGD_NN_train_v1.py --data dat
         -host XuanNguyen@192.168.1.9:3 /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/venv/bin/python /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/03_MPI_SGD_NN_train_v1.py --data /Users/XuanNguyen/Documents/NUS/DSA5208/DSA5208_Project1/data/output/split_data --batch-size 1024 --print-every 100000 --activation relu --epochs 1 --sync-every 1000
 
 ```
+## 9) run report (program: z_extract_log_to_csv.ipynb)
+
+After all CLI to experiment different config combination for model. run command in program: z_extract_log_to_csv.ipynb to able to produce record history/result in csv and produce chart (result) from record csv, which are used to build report.
