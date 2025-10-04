@@ -7,24 +7,28 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 2) Create data folder structure
+## 2) Create data folder structure (program: 00_create_directory.py)
 ```bash
 python 00_create_directory.py
 ```
-
 > Recommend to keep raw data in data/input/ folder  
 > This is the suggested structure
 ```
 .
-├── README.md
-├── 00_create_directory.py
-├── 01_preprocess_data.py
-├── 02_data_split.py
-├── 03_MPI_SGD_NN_train_v1.py
-├── requirements.txt
-├── logs/
-├── docs/
-├── data/
+├── README.md           #document presents technical guide to config and run project
+├── REPORTv2.md         #present theoretical part and results of project
+├── 00_create_directory.py      #program to run for creating folder structure
+├── 01_preprocess_data.py       #program to pre-process data, explained rationale in REPORTv2.md
+├── 02_data_split.py            #program to split data 70%-30% per request
+├── 03_MPI_SGD_NN_train_v1.py   #main program to expereince neural network model & MPI
+├── 04_MPI_SGD_NN_train_support_single_laptop.py        #testing model to run in single laptop
+├── requirements.txt            #requirement
+├── z_data_analyze.ipynb        #support material to analyse dataset before preprocess data
+├── z_extract_log_to_csv.ipynb  #supporting program to run report and produce chart from logs (output of 03_MPI_SGD_NN_train_v1.py )
+├── z_extract_raw.ipynb         #supporting program to extract the small part of whole dataset to test the capacity of a computer 
+├── logs/                       #record the output from main program 03_MPI_SGD_NN_train_v1.py
+├── docs/                       #record the diagram to present the flow of data and step of program
+├── data/                       #contain the dataset input setup and output (not commit to git)
 │   ├── input/
 │   │   ├── nytaxi2022.csv
 │   └── output/
@@ -36,7 +40,9 @@ python 00_create_directory.py
 │       │    ├── to_[N:number of processes]
 │       │        └── part_[i:0-> N-1].csv
 │       ├── training/
-│           └── history_YYYYMMDD_HHMMSS.csv
+│       │      └── history_YYYYMMDD_HHMMSS.csv
+├── charts/                     #output from z_extract_log_to_csv.ipynb 
+├── report/                     #output from z_extract_log_to_csv.ipynb 
 ```
 
 ## 📝 Notes
@@ -49,12 +55,12 @@ python 00_create_directory.py
 This structure helps keep raw data separate from processed outputs and models, making the workflow cleaner and reproducible.
 
 
-## 3) Cleanup, and normalize data
+## 3) Cleanup, and normalize data (program: 01_preprocess_data.py)
 ```bash
 python 01_preprocess_data.py --input_path data/input/nytaxi2022.csv --output_path data/output/cleanup_data/nytaxi2022_cleaned.csv
 ```
 
-## 4) Split cleanup data for number of processes
+## 4) Split cleanup data for number of processes (program: 02_data_split.py)
 ```bash
 python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cleaned.csv --output-folder data/output/split_data --number-process 8
 ```
@@ -63,9 +69,10 @@ python 02_data_split.py --input-file-path data/output/cleanup_data/nytaxi2022_cl
 - for macbook
 ```bash
 brew install open-mpi
+
 ```
 
-- for windows
+- for windows (optional - following CLI run - basing on Macbook only)
 
 >1) Install Microsoft MPI (MS-MPI)
 
@@ -84,7 +91,7 @@ rank 0 of 2
 rank 1 of 2
 ```
 
-## 6) Training with MPI on single computer
+## 6) Training with MPI on single computer (program: 04_MPI_SGD_NN_train_support_single_laptop)
 > Run with default parameters
 ```bash
 mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data
@@ -94,13 +101,15 @@ mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data
 mpiexec -n 3 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 1 --batch-size 512 --hidden 64 --lr 0.002 --activation relu
 ```
 ```text
-**Note**: with fulldata set ~ 39ml data; one Laptop (Memory of 18GB) cannot run whole dataset.
-For the training with MPI on single computer; can split data into multiple set; and only run few of them. Recomemdation: Split data into 8 set; and run MPI with 3 set (3 process) in 1 Laptop.
-
+**Note**: with fulldata set ~ 39ml data; one Laptop (Memory of 18GB) cannot run program: 03_MPI_SGD_NN_train_v1 with whole dataset.
+For the purpose of testing model neural network with all dataset, we created a separate:
+``` 
+**program: 04_MPI_SGD_NN_train_support_single_laptop** 
+including **--calculate_sse** ; which will divide data into small set within a batch to load and calculate within each batch, which reduce the demanding of high memory of laptop to store. 
+Since the purpose of project is to verify the MPI technology ability to help connect multiple computer to run neural network model with big data. So, --calculate_sse only use for this testing on 1 computer. In the section 7) - MPI, we remove --calculate_sse from main program.
 ```
-
-
-## 7) Config for multiple computers - For MACBOOK
+```
+## 7) Config for multiple computers - For MACBOOK (program: 03_MPI_SGD_NN_train_v1)
 ```text
 - enable remote access on second laptop
 - try to connect from first computer to second computer
@@ -113,8 +122,8 @@ For the training with MPI on single computer; can split data into multiple set; 
 ```
 
 ## 8) Training with MPI on multiple computers
-> Each computer will have to run from **Step 1 to 5 with same config** (number of process)  
-> Total Process (N) = N_FIRST + N_SECOND
+> Each computer will have to run from **Step 1 to 5 with same config**  
+> Total Process (N) = N_FIRST + N_SECOND (N_FIRST = number of process for host/main computer; and N_SECOND = number of process allocated to 2nd computer)
 ```bash
 mpiexec -host {{LOCAL_IP}}:{{N_FIRST}} venv/bin/python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data : \
         -host XuanNguyen@{{REMOTE_IP}}:{{N_SECOND}} {{PROJECT_DIRECTORY}}/venv/bin/python {{PROJECT_DIRECTORY}}/03_MPI_SGD_NN_train_v1.py --data {{PROJECT_DIRECTORY}}/data/output/split_data
