@@ -121,7 +121,7 @@ Since the purpose of project is to verify the MPI technology ability to help con
 - Example: scp -r data/output/split_data/to_20/ username@remote_host:{PROJECT_DIRECTORY}/data/output/split_data/to_20/
 ```
 
-## 8) Training with MPI on multiple computers
+## 8) Training with MPI on multiple computers (program: 03_MPI_SGD_NN_train_v1)
 > Each computer will have to run from **Step 1 to 5 with same config**  
 > Total Process (N) = N_FIRST + N_SECOND (N_FIRST = number of process for host/main computer; and N_SECOND = number of process allocated to 2nd computer)
 ```bash
@@ -141,7 +141,7 @@ Default config:
 Output will be recorded in #logs; then manually intervention to rename log-rank0 to record result, before start new CLI for different experiment. 
 
 
-## 9) CLI script for Training/Test
+## 9) CLI script for Training/Test (program: 03_MPI_SGD_NN_train_v1)
 
 **3 activations** × **5 batch sizes** at **Process = 8**
 ```bash
