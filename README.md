@@ -94,11 +94,11 @@ rank 1 of 2
 ## 6) Training with MPI on single computer (program: 04_MPI_SGD_NN_train_support_single_laptop)
 > Run with default parameters
 ```bash
-mpiexec -n 4 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data
+mpiexec -n 4 python 04_MPI_SGD_NN_train_support_single_laptop.py --data data/output/split_data
 ```
 > Run with custom parameters
 ```bash
-mpiexec -n 3 python 03_MPI_SGD_NN_train_v1.py --data data/output/split_data --epochs 1 --batch-size 512 --hidden 64 --lr 0.002 --activation relu
+mpiexec -n 3 04_MPI_SGD_NN_train_support_single_laptop.py --data data/output/split_data --epochs 1 --batch-size 512 --hidden 64 --lr 0.002 --activation relu
 ```
 ```text
 **Note**: with fulldata set ~ 39ml data; one Laptop (Memory of 18GB) cannot run program: 03_MPI_SGD_NN_train_v1 with whole dataset.
@@ -108,6 +108,16 @@ For the purpose of testing model neural network with all dataset, we created a s
 including **--calculate_sse** ; which will divide data into small set within a batch to load and calculate within each batch, which reduce the demanding of high memory of laptop to store. 
 Since the purpose of project is to verify the MPI technology ability to help connect multiple computer to run neural network model with big data. So, --calculate_sse only use for this testing on 1 computer. In the section 7) - MPI, we remove --calculate_sse from main program.
 ```
+    p.add_argument('--epochs', type=int, default=1)
+    p.add_argument('--batch-size', type=int, default=1024)
+    p.add_argument('--calculate-size', type=int, default=128)
+    p.add_argument('--hidden', type=int, default=64)
+    p.add_argument('--lr', type=float, default=0.002)
+    p.add_argument('--activation', type=str, choices=list(ACTIVATIONS.keys()), default='relu')
+    p.add_argument('--seed', type=int, default=123)
+    p.add_argument('--sync-every', type=int, default=0)
+    p.add_argument('--print-every', type=int, default=2500)
+    p.add_argument('--save-model', type=str, default='data/output/model/')
 ```
 ## 7) Config for multiple computers - For MACBOOK (program: 03_MPI_SGD_NN_train_v1)
 ```text
